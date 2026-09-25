@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -18,9 +19,15 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const browser = await chromium.launch();
 const events = [];
 const cspViolations = [];
+const imageRequests = [];
+const PROXY = process.env.AVATAR_PROXY || 'https://avatar.example/proxy';
+const CAT = 'https://stevehoang.com/assets/img/site/cat-avatar.png';
+const md5 = (value) => crypto.createHash('md5').update(value).digest('hex');
+const proxied = (url) => `${PROXY}?url=${encodeURIComponent(url)}`;
+const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
 
-async function ctxFor({ token, width = 1280, scheme = 'light', locale = 'en-US', storage } = {}) {
-  const ctx = await browser.newContext({ viewport: { width, height: 800 }, colorScheme: scheme, locale, acceptDownloads: true });
+async function ctxFor({ token, width = 1280, scheme = 'light', locale = 'en-US', storage, cat = false } = {}) {
+  const ctx = await browser.newContext({ viewport: { width, height: 800 }, colorScheme: scheme, locale, acceptDownloads: true, hasTouch: width < 720 });
   if (token) await ctx.addInitScript((t) => sessionStorage.setItem('TOKEN', t), token);
   if (storage) await ctx.addInitScript((s) => Object.entries(s).forEach(([k, v]) => localStorage.setItem(k, v)), storage);
   await ctx.addInitScript(() => {
@@ -31,6 +38,8 @@ async function ctxFor({ token, width = 1280, scheme = 'light', locale = 'en-US',
   await ctx.route('**/*', (route) => {
     const url = new URL(route.request().url());
     if (url.origin === new URL(BASE).origin) return route.continue();
+    if (route.request().resourceType() === 'image') imageRequests.push(url.href);
+    if (cat && url.href === CAT) return route.fulfill({ body: PNG, contentType: 'image/png' });
     if (url.hostname === 'stevehoang.com' && route.request().resourceType() === 'document') {
       return route.fulfill({ body: '<!doctype html><title>blog</title>', contentType: 'text/html' });
     }
@@ -102,6 +111,17 @@ async function register(page, nick, email, password) {
   await settle(page);
 }
 
+async function openAccount(page) {
+  await page.getByRole('button', { name: 'Account' }).click();
+  await page.locator('.sheet-root.is-open').waitFor();
+}
+
+async function logout(page) {
+  await openAccount(page);
+  await page.getByRole('button', { name: 'Logout' }).click();
+  await settle(page);
+}
+
 const ADMIN = { nick: 'Steve', email: 'admin@example.com', password: 'Admin-pass-1' };
 const GUEST = { nick: 'Guest', email: 'guest@example.com', password: 'Guest-pass-1' };
 
@@ -147,8 +167,7 @@ let adminToken;
   adminToken = await page.evaluate(() => sessionStorage.getItem('TOKEN'));
   const me = await api('token', { token: adminToken });
   check(2, 'first user is administrator', me.data?.type === 'administrator', me.data?.type);
-  await page.getByRole('button', { name: 'Logout' }).click();
-  await settle(page);
+  await logout(page);
   check(2, 'logout returns to login at /', (await loc(page)) === '/' && (await h1(page)) === 'Login', await loc(page));
   const cases = [
     ['/user', '/login?redirect=%2Fuser', '/user'],
@@ -163,8 +182,7 @@ let adminToken;
     await login(page, ADMIN.email, ADMIN.password, path);
     const at = await loc(page);
     check(2, `redirect ${label} -> ${want}`, at === want && new URL(page.url()).host === new URL(BASE).host, page.url());
-    await page.getByRole('button', { name: 'Logout' }).click().catch(() => {});
-    await settle(page);
+    await logout(page).catch(() => {});
   }
   await page.evaluate(() => sessionStorage.clear());
   await login(page, ADMIN.email, ADMIN.password, '/login?redirect=https%3A%2F%2Fstevehoang.com%2Fposts%2Fx');
@@ -217,7 +235,7 @@ let guestToken;
     await settle(page);
     check(3, `guest ${p} -> /profile`, (await loc(page)) === '/profile', await loc(page));
   }
-  check(3, 'guest sees no admin nav', (await page.locator('.site-nav').count()) === 0);
+  check(3, 'guest sees no admin nav', (await page.locator('.site-nav').count()) === 0 && (await page.locator('.tabbar').count()) === 0);
   const list = await api('comment?type=list&page=1', { token: guestToken });
   check(3, 'guest cannot list comments via API', list.errno !== 0, JSON.stringify(list).slice(0, 80));
   await ctx.close();
@@ -254,6 +272,11 @@ const HOSTILE = [
   const page = await open(ctx, '/');
   const items = () => page.locator('.comment-list > li.comment');
   const tab = (name) => page.locator('.tabs .tab', { hasText: name });
+  const sheet = page.locator('.sheet-root.is-open');
+  const more = async (id, key) => {
+    await page.locator(`#${id} .act-more`).click();
+    await sheet.locator(`.act-${key}`).click();
+  };
   const waitList = async () => { await page.waitForFunction(() => !document.querySelector('.comment-list.is-loading')); await sleep(100); };
   await waitList();
   check(4, 'approved tab empty initially', (await page.locator('.comment-list .empty').count()) === 1);
@@ -262,13 +285,17 @@ const HOSTILE = [
   await waitList();
   check(4, 'waiting tab shows 10 per page', (await items().count()) === 10, String(await items().count()));
   check(4, 'waiting paginator shows 4 pages', (await page.locator('.pager .page-btn', { hasText: '4' }).count()) === 1);
+  check(4, 'no checkboxes before selection mode', (await page.locator('.comment-check').count()) === 0 && (await page.locator('.bulkbar').count()) === 0);
+  await page.locator('.act-select').click();
   for (let round = 0; round < 3; round += 1) {
-    await page.locator('.bulkbar input[type=checkbox]').check();
+    await page.locator('.bulkbar .bulk-all input').check();
     check(4, `select-all selects 10 (round ${round + 1})`, (await page.locator('.comment-check:checked').count()) === 10);
-    await page.locator('.bulk-actions .text-btn', { hasText: 'Approve' }).click();
+    await page.locator('.bulkbar .act-approved').click();
     await sleep(300);
     await waitList();
   }
+  await page.locator('.bulkbar .bulk-cancel').click();
+  check(4, 'leaving selection mode hides checkboxes and bulk bar', (await page.locator('.comment-check').count()) === 0 && (await page.locator('.bulkbar').count()) === 0);
   check(4, 'bulk approve moved 30; waiting badge 8', (await tab('Waiting').locator('.count').textContent()) === '8', await tab('Waiting').locator('.count').textContent());
   await tab('Approved').click();
   await waitList();
@@ -283,7 +310,7 @@ const HOSTILE = [
   for (const a of await page.locator('.comment-content a').all()) await a.click({ modifiers: [], force: true, trial: false }).catch(() => {});
   await sleep(300);
   const xss = await page.evaluate(() => window.__xss);
-  const foreign = await page.locator('li.comment', { hasText: 'foreign page url' }).locator('.comment-where a').getAttribute('href').catch(() => 'missing');
+  const foreign = await page.locator('li.comment', { hasText: 'foreign page url' }).locator('.post-chip').getAttribute('href').catch(() => 'missing');
   check(4, 'post link for a foreign url stays on SITE_URL', foreign === 'https://stevehoang.com/phish', foreign);
   check(4, 'hostile content: no script/iframe/on* in DOM', scriptTags === 0, `count=${scriptTags}`);
   check(4, 'hostile content: no javascript: URLs', jsHrefs === 0, `count=${jsHrefs}`);
@@ -304,21 +331,21 @@ const HOSTILE = [
 
   const target = page.locator('li.comment', { hasText: 'Seed comment number' }).first();
   const targetId = await target.getAttribute('id');
-  await target.locator('.act-sticky').click();
+  await more(targetId, 'sticky');
   await sleep(400);
   check(4, 'sticky tag appears', (await page.locator(`#${targetId} .tag`).count()) === 1);
   const stickyApi = await api(`comment?path=${encodeURIComponent('/posts/post-1/')}`);
-  await page.locator(`#${targetId} .act-sticky`).click();
+  await more(targetId, 'sticky');
   await sleep(400);
   check(4, 'unsticky removes tag', (await page.locator(`#${targetId} .tag`).count()) === 0);
 
-  await page.locator(`#${targetId} .act-spam`).click();
+  await more(targetId, 'spam');
   await sleep(400);
   check(4, 'spam removes from approved list, spam badge 1', (await page.locator(`#${targetId}`).count()) === 0 && (await tab('Spam').locator('.count').textContent()) === '1');
   await tab('Spam').click();
   await waitList();
   check(4, 'spam tab lists it', (await page.locator(`#${targetId}`).count()) === 1);
-  await page.locator(`#${targetId} .act-waiting`).click();
+  await more(targetId, 'waiting');
   await sleep(400);
   check(4, 'spam -> waiting updates badges', (await tab('Waiting').locator('.count').textContent()) === '9' && (await tab('Spam').locator('.count').count()) === 0);
   await tab('Waiting').click();
@@ -331,20 +358,23 @@ const HOSTILE = [
   await waitList();
   const del = page.locator('li.comment', { hasText: 'iframe' }).first();
   const delId = (await del.getAttribute('id')).replace('comment-', '');
-  const dialogsBefore = page.__dialogs.length;
-  await del.locator('.act-delete').click();
+  await more(`comment-${delId}`, 'delete');
+  await sheet.locator('.act-delete-confirm').waitFor();
+  await sleep(300);
+  const asked = (await page.locator(`#comment-${delId}`).count()) === 1;
+  await sheet.locator('.act-delete-confirm').click();
   await sleep(500);
   const gone = await api(`comment?type=list&status=approved&page=1&pageSize=100`, { token: adminToken });
-  check(4, 'delete asks confirm and removes', page.__dialogs.length === dialogsBefore + 1 && !gone.data.data.some((c) => c.objectId === delId), page.__dialogs.slice(dialogsBefore).join(';'));
+  check(4, 'delete asks confirm and removes', asked && !gone.data.data.some((c) => c.objectId === delId) && (await page.locator(`#comment-${delId}`).count()) === 0, `asked=${asked}`);
 
   const mdItem = page.locator('li.comment', { hasText: 'my link' });
   const mdId = await mdItem.getAttribute('id');
-  await mdItem.locator('.act-edit').click();
-  const textarea = await page.locator(`#${mdId} textarea[name=comment]`).inputValue();
+  await more(mdId, 'edit');
+  const textarea = await sheet.locator('textarea[name=comment]').inputValue();
   check(4, 'edit form shows original markdown, not rendered HTML', textarea.includes('[my link](https://example.org/page)'), JSON.stringify(textarea.slice(0, 80)));
-  await page.fill(`#${mdId} input[name=nick]`, 'Edited Reader');
-  await page.fill(`#${mdId} textarea[name=comment]`, 'Edited [new link](https://example.net/) and <img src=x onerror="window.__xss=9">');
-  await page.locator(`#${mdId} .comment-editor button[type=submit]`).click();
+  await sheet.locator('input[name=nick]').fill('Edited Reader');
+  await sheet.locator('textarea[name=comment]').fill('Edited [new link](https://example.net/) and <img src=x onerror="window.__xss=9">');
+  await sheet.locator('button[type=submit]').click();
   await sleep(600);
   const edited = page.locator(`#${mdId}`);
   const editedHtml = await edited.locator('.comment-content').innerHTML().catch(() => '');
@@ -354,8 +384,8 @@ const HOSTILE = [
   const replyTo = page.locator('li.comment', { hasText: 'Seed comment number' }).first();
   const replyToId = await replyTo.getAttribute('id');
   await replyTo.locator('.act-reply').click();
-  await page.fill(`#${replyToId} .comment-reply textarea`, 'Thanks from the admin');
-  await page.locator(`#${replyToId} .comment-reply button[type=submit]`).click();
+  await sheet.locator('.comment-reply textarea').fill('Thanks from the admin');
+  await sheet.locator('button[type=submit]').click();
   await sleep(800);
   await waitList();
   check(4, 'inline reply appears in approved list', (await page.locator('li.comment', { hasText: 'Thanks from the admin' }).count()) === 1);
@@ -379,20 +409,33 @@ const HOSTILE = [
 
   await tab('Waiting').click();
   await waitList();
-  await page.locator('.bulkbar input[type=checkbox]').check();
-  await page.locator('.bulk-actions .text-btn', { hasText: 'Spam' }).click();
+  await page.locator('.act-select').click();
+  await page.locator('.bulkbar .bulk-all input').check();
+  await page.locator('.bulkbar .act-spam').click();
   await sleep(400);
   await waitList();
   check(4, 'bulk spam empties waiting', (await page.locator('.comment-list .empty').count()) === 1 && (await tab('Spam').locator('.count').textContent()) === '8');
   await tab('Spam').click();
   await waitList();
   await page.locator('.comment-check').first().check();
-  await page.locator('.bulk-actions .text-btn', { hasText: 'Delete' }).click();
+  await page.locator('.bulkbar .act-delete').click();
+  await sleep(300);
+  const bulkAsked = (await tab('Spam').locator('.count').textContent()) === '8' && (await page.locator('.bulkbar .act-delete-confirm').count()) === 1;
+  await page.locator('.bulkbar .act-delete-confirm').click();
   await sleep(500);
   await waitList();
-  check(4, 'bulk delete one from spam', (await tab('Spam').locator('.count').textContent()) === '7');
+  check(4, 'bulk delete one from spam (after confirm)', bulkAsked && (await tab('Spam').locator('.count').textContent()) === '7', `asked=${bulkAsked}`);
+  await page.locator('.bulkbar .bulk-cancel').click();
   const realErrors = page.__console.filter((e) => !e.startsWith('Failed to load resource'));
-  check(4, 'no unexpected alerts or page errors in manager (404s are hostile <img src=x>)', !realErrors.length && page.__bad404.every((u) => u === `${BASE}/x`) && page.__dialogs.every((d) => d.startsWith('confirm')), [...realErrors, ...new Set(page.__bad404)].join(' | '));
+  check(4, 'no native dialogs or page errors in manager (404s are hostile <img src=x>)', !realErrors.length && page.__bad404.every((u) => u === `${BASE}/x`) && !page.__dialogs.length, [...realErrors, ...new Set(page.__bad404), ...page.__dialogs].join(' | '));
+  const readerAvatars = new Set(Array.from({ length: 40 }, (_, i) => proxied(`https://example.test/a/${md5(`reader${i + 1}@example.com`)}`)));
+  check(9, 'comment avatars use the server template through AVATAR_PROXY', imageRequests.some((u) => readerAvatars.has(u)), imageRequests.filter((u) => u.includes('example.test')).slice(0, 2).join(' '));
+  check(9, 'no hard-coded libravatar/gravatar fallback requested', !imageRequests.some((u) => /libravatar|gravatar/u.test(u)), imageRequests.filter((u) => /libravatar|gravatar/u.test(u)).slice(0, 2).join(' '));
+  await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+  await sleep(800);
+  const broken = await page.evaluate(() => [...document.querySelectorAll('img.avatar')].filter((img) => img.complete && !img.naturalWidth).length);
+  const fallbacks = await page.locator('.comment-list .avatar-blank, .comment-list img.avatar-default').count();
+  check(9, 'failed avatars fall back to the cat, then a plain circle (no broken images)', broken === 0 && fallbacks === (await items().count()), `broken=${broken} fallbacks=${fallbacks}`);
   await page.screenshot({ path: `${OUT}/manager-desktop.png`, fullPage: true });
   await ctx.close();
 }
@@ -408,6 +451,13 @@ const HOSTILE = [
   const me = await api('token', { token: adminToken });
   check(5, 'profile name/url saved', me.data.display_name === 'Steve Edited' && me.data.url === 'https://stevehoang.com/about', `${me.data.display_name} ${me.data.url}`);
   check(5, 'header shows new name without reload', (await page.locator('.me-name').textContent()) === 'Steve Edited');
+  page.__promptValue = 'https://img.example/me.png';
+  await page.locator('.profile-avatar-btn').click();
+  await sleep(600);
+  const avatarSrcs = await page.evaluate(() => [...document.querySelectorAll('.profile-avatar, .me-avatar')].map((el) => el.getAttribute('src')));
+  const changed = await api('token', { token: adminToken });
+  check(9, 'profile avatar change shows the new (proxied) URL immediately', imageRequests.includes(proxied('https://img.example/me.png')) && changed.data.avatar === proxied('https://img.example/me.png') && page.__dialogs.some((d) => d.startsWith('prompt')), `${avatarSrcs.join(' ')} server=${changed.data.avatar}`);
+  check(9, 'avatar change without reload', (await page.evaluate(() => performance.getEntriesByType('navigation').length)) === 1 && (await h1(page)) === 'Settings');
   const pw = page.locator('#change-password');
   await pw.locator('input[name=password]').fill('New-pass-22');
   await pw.locator('input[name=confirm]').fill('New-pass-22');
@@ -442,32 +492,53 @@ const HOSTILE = [
   const ctx = await ctxFor({ token: adminToken });
   const page = await open(ctx, '/user');
   const row = (name) => page.locator('.user-row', { hasText: name });
+  const sheet = page.locator('.sheet-root.is-open');
+  const act = async (name, key) => {
+    await row(name).locator('.act-more').click();
+    await sheet.locator(`.act-${key}`).click();
+  };
+  const closeSheet = async () => {
+    await page.keyboard.press('Escape');
+    await page.locator('.sheet-root').waitFor({ state: 'detached' });
+  };
   check(5, 'user list shows 3 users', (await page.locator('.user-row').count()) === 3, String(await page.locator('.user-row').count()));
-  check(5, 'no delete on self', (await row('Steve Edited').locator('.act-delete').count()) === 0);
-  await row('guest@example.com').locator('.act-administrator').click();
+  check(9, 'user list avatars proxied on the client (server leaves them bare)', imageRequests.some((u) => u.startsWith(proxied('https://example.test/a/'))), imageRequests.filter((u) => u.includes('example.test')).join(' '));
+  await row('Steve Edited').locator('.act-more').click();
+  await sheet.locator('.act-guest').waitFor();
+  check(5, 'no delete on self', (await sheet.locator('.act-delete').count()) === 0 && (await sheet.locator('.act-guest').count()) === 1);
+  await closeSheet();
+  await act('guest@example.com', 'administrator');
   await sleep(400);
   let g = await api('token', { token: guestToken });
   check(5, 'set guest -> administrator', g.data.type === 'administrator');
-  await row('guest@example.com').locator('.act-guest').click();
+  await act('guest@example.com', 'guest');
   await sleep(400);
   g = await api('token', { token: guestToken });
   check(5, 'set administrator -> guest', g.data.type === 'guest');
-  await row('Steve Edited').locator('.act-guest').click();
+  await act('Steve Edited', 'guest');
   await sleep(300);
-  check(5, 'cannot demote self (alert)', page.__dialogs.some((d) => d.includes("can't set yourself")), page.__dialogs.join(';'));
-  page.__promptValue = 'VIP';
-  await row('guest@example.com').locator('.act-label').click();
+  check(5, 'cannot demote self (notice)', ((await page.locator('.notice').textContent().catch(() => '')) ?? '').includes("can't set yourself"), await page.locator('.notice').textContent().catch(() => 'no notice'));
+  await page.locator('.notice-close').click();
+  await act('guest@example.com', 'label');
+  await sheet.locator('input[name=label]').fill('VIP');
+  await sheet.locator('.act-label-save').click();
   await sleep(400);
   check(5, 'set label', (await row('guest@example.com').locator('.tag', { hasText: 'VIP' }).count()) === 1);
-  await row('third@example.com').locator('.act-delete').click();
+  await act('third@example.com', 'delete');
+  const userAsked = (await sheet.locator('.act-delete-confirm').count()) === 1;
+  await sheet.locator('.act-delete-confirm').click();
   await sleep(500);
   const users = await api('user?page=1', { token: adminToken });
   const third = users.data.data.find((u) => u?.email === 'third@example.com');
-  check(5, 'delete user: Waline bans it, row shows Banned without reload', third?.type === 'banned' && (await row('third@example.com').locator('.tag').first().textContent()) === 'Banned' && (await row('third@example.com').locator('.act-delete').count()) === 0, third?.type);
+  await row('third@example.com').locator('.act-more').click();
+  await sheet.locator('.act-label').waitFor();
+  const noDelete = (await sheet.locator('.act-delete').count()) === 0;
+  await closeSheet();
+  check(5, 'delete user: confirms, Waline bans it, row shows Banned without reload', userAsked && third?.type === 'banned' && (await row('third@example.com').locator('.tag').first().textContent()) === 'Banned' && noDelete, third?.type);
   await page.reload();
   await settle(page);
   check(5, 'banned user shows Banned after reload', (await row('third@example.com').locator('.tag').first().textContent()) === 'Banned');
-  await row('third@example.com').locator('.act-guest').click();
+  await act('third@example.com', 'guest');
   await sleep(400);
   const unbanned = (await api('user?page=1', { token: adminToken })).data.data.find((u) => u?.email === 'third@example.com');
   check(5, 'banned user can be restored to guest', unbanned?.type === 'guest', unbanned?.type);
@@ -505,15 +576,23 @@ const HOSTILE = [
 {
   const ctx = await ctxFor({ token: adminToken });
   const page = await open(ctx, '/');
-  const toggle = page.getByRole('button', { name: 'Toggle light and dark' });
-  await toggle.click();
+  await openAccount(page);
+  const focused = await page.evaluate(() => document.activeElement?.closest('.sheet') !== null);
+  await page.keyboard.press('Escape');
+  await page.locator('.sheet-root').waitFor({ state: 'detached' });
+  const restored = await page.evaluate(() => document.activeElement?.getAttribute('aria-label'));
+  check(6, 'account sheet: focus moves in, Escape closes, focus returns', focused && restored === 'Account', `${focused} ${restored}`);
+  await openAccount(page);
+  await page.getByRole('radio', { name: 'Dark' }).click();
   const t1 = await page.evaluate(() => document.documentElement.dataset.theme);
   await page.reload();
   await settle(page);
   const t2 = await page.evaluate(() => document.documentElement.dataset.theme);
   const bg = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
   check(6, 'theme toggle persists across reload', t1 === 'dark' && t2 === 'dark', `${t1} ${t2} bg=${bg}`);
-  await page.getByRole('button', { name: 'Toggle light and dark' }).click();
+  await openAccount(page);
+  check(6, 'theme picker shows Dark selected', (await page.getByRole('radio', { name: 'Dark' }).getAttribute('aria-checked')) === 'true');
+  await page.getByRole('radio', { name: 'System' }).click();
   check(6, 'toggle back to system clears override', (await page.evaluate(() => [document.documentElement.dataset.theme, localStorage.getItem('line-theme')])).every((v) => v == null));
   await ctx.close();
   const dctx = await ctxFor({ scheme: 'dark' });
@@ -528,7 +607,7 @@ const pagesLoggedOut = ['/', '/login', '/register', '/forgot', '/nope'];
 const pagesAdmin = ['/', '/profile', '/user', '/migration'];
 const pagesGuest = ['/profile'];
 const overflow = [];
-for (const width of [360, 390, 768, 1280]) {
+for (const width of [320, 360, 390, 414, 768, 1280]) {
   for (const scheme of ['light', 'dark']) {
     for (const [who, token, list] of [['out', null, pagesLoggedOut], ['admin', adminToken, pagesAdmin], ['guest', guestToken, pagesGuest]]) {
       const ctx = await ctxFor({ token, width, scheme });
@@ -550,7 +629,7 @@ for (const width of [360, 390, 768, 1280]) {
     }
   }
 }
-check(6, 'no horizontal scroll at 360/390/768/1280 on every page, both themes', overflow.length === 0, overflow.join(' | '));
+check(6, 'no horizontal scroll at 320/360/390/414/768/1280 on every page, both themes', overflow.length === 0, overflow.join(' | '));
 
 {
   const ctx = await ctxFor({ locale: 'vi-VN' });
@@ -565,6 +644,7 @@ check(6, 'no horizontal scroll at 360/390/768/1280 on every page, both themes', 
   await ctx.close();
   const actx = await ctxFor({ locale: 'vi-VN', token: adminToken });
   const ap = await open(actx, '/');
+  await openAccount(ap);
   await ap.locator('.lang-select select').selectOption('vi');
   await sleep(300);
   check(7, 'language picker switches to Vietnamese', (await h1(ap)) === 'Quản lý bình luận', await h1(ap));

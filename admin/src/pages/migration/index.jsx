@@ -183,10 +183,7 @@ export default function Migration() {
   };
 
   return (
-    <Layout>
-      <div className="page-head">
-        <h1 className="page-title">{t('migration')}</h1>
-      </div>
+    <Layout title={t('migration')}>
       <div className="migration">
         <section className="panel">
           <h2 className="panel-title">{t('export')}</h2>

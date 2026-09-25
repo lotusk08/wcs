@@ -1,7 +1,12 @@
 import cls from 'classnames';
 import React from 'react';
+import { useTranslation } from 'react-i18next';
+
+import Icon from './icon/ui.jsx';
 
 export default function Paginator({ current, total, onChange }) {
+  const { t } = useTranslation();
+
   if (!total || total < 2) {
     return null;
   }
@@ -10,12 +15,13 @@ export default function Paginator({ current, total, onChange }) {
     (page) => page > 0 && page <= total,
   );
 
-  const item = (page, label = page) => (
+  const item = (page, label = page, name) => (
     <li key={`${label}-${page}`}>
       <button
         type="button"
         className={cls('page-btn', { active: page === current })}
         aria-current={page === current ? 'page' : undefined}
+        aria-label={name}
         onClick={() => onChange(page)}
       >
         {label}
@@ -24,9 +30,9 @@ export default function Paginator({ current, total, onChange }) {
   );
 
   return (
-    <nav className="pager" aria-label="Pagination">
-      <ul>
-        {current > 1 ? item(current - 1, '‹') : null}
+    <nav className="pager" aria-label={t('pagination')}>
+      <ul className="pager-full">
+        {current > 1 ? item(current - 1, '‹', t('previous page')) : null}
         {pages[0] > 1 ? item(1) : null}
         {pages[0] > 2 ? (
           <li className="gap" aria-hidden="true">
@@ -40,8 +46,21 @@ export default function Paginator({ current, total, onChange }) {
           </li>
         ) : null}
         {pages.at(-1) < total ? item(total) : null}
-        {current < total ? item(current + 1, '›') : null}
+        {current < total ? item(current + 1, '›', t('next page')) : null}
       </ul>
+      <div className="pager-compact">
+        <button type="button" className="btn pager-step" disabled={current <= 1} onClick={() => onChange(current - 1)}>
+          <Icon name="prev" size={18} />
+          <span>{t('previous page')}</span>
+        </button>
+        <span className="pager-status" aria-live="polite">
+          {t('page {{current}} of {{total}}', { current, total })}
+        </span>
+        <button type="button" className="btn pager-step" disabled={current >= total} onClick={() => onChange(current + 1)}>
+          <span>{t('next page')}</span>
+          <Icon name="next" size={18} />
+        </button>
+      </div>
     </nav>
   );
 }

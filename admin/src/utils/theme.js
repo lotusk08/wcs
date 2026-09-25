@@ -23,18 +23,18 @@ export const applyTheme = () => {
   }
 };
 
-export const toggleTheme = () => {
-  const next = currentTheme() === 'dark' ? 'light' : 'dark';
+export const themePreference = () => storedTheme() ?? 'system';
 
-  if (next === systemTheme()) {
-    storage.remove('localStorage', KEY);
+export const setThemePreference = (value) => {
+  if (value === 'light' || value === 'dark') {
+    storage.set('localStorage', KEY, value);
   } else {
-    storage.set('localStorage', KEY, next);
+    storage.remove('localStorage', KEY);
   }
 
   applyTheme();
 
-  return next;
+  return themePreference();
 };
 
 export const onSystemThemeChange = (callback) => {

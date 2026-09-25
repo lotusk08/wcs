@@ -3,12 +3,12 @@ import React, { useState } from 'react';
 import { Trans, useTranslation } from 'react-i18next';
 import { useDispatch, useSelector } from 'react-redux';
 
+import Avatar from '../../components/Avatar.jsx';
 import Layout from '../../components/Layout.jsx';
 // oxlint-disable-next-line import/no-namespace
 import * as Icons from '../../components/icon';
 import { updateProfile } from '../../services/user.js';
 import { API_BASE, SOCIALS, getToken } from '../../utils/site.js';
-import { buildAvatar } from '../manage-comments/utils.js';
 import TwoFactorAuth from './twoFactorAuth.jsx';
 
 const unbind = async (type) => {
@@ -86,8 +86,7 @@ export default function Profile() {
     }
 
     try {
-      await updateProfile({ avatar: url });
-      location.reload();
+      await dispatch.user.updateProfile({ avatar: url.trim() });
     } catch (err) {
       alert(err.message);
     }
@@ -97,10 +96,7 @@ export default function Profile() {
     `${API_BASE}oauth?type=${encodeURIComponent(social)}&state=${encodeURIComponent(getToken() ?? '')}&redirect=${encodeURIComponent(`${location.origin}/profile`)}`;
 
   return (
-    <Layout>
-      <div className="page-head">
-        <h1 className="page-title">{t('setting')}</h1>
-      </div>
+    <Layout title={t('setting')}>
       <div className="profile">
         <aside className="profile-card">
           <button
@@ -109,7 +105,7 @@ export default function Profile() {
             title={t('change avatar')}
             onClick={changeAvatar}
           >
-            <img className="profile-avatar" src={buildAvatar(user.email, user.avatar)} alt={t('avatar')} />
+            <Avatar src={user.avatar} size={120} alt={t('avatar')} className="profile-avatar" />
             <span className="profile-avatar-hint">{t('change avatar')}</span>
           </button>
           <h2 className="profile-name">{user.display_name}</h2>

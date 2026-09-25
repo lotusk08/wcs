@@ -86,6 +86,8 @@ describe('ui router', () => {
         assert.equal(globalOf(res.body, 'turnstileKey'), undefined);
         assert.deepEqual(globalOf(res.body, 'oauthServices'), [{ name: 'github' }]);
         assert.equal(globalOf(res.body, 'serverURL'), 'https://line.stevehoang.com/api/');
+        assert.equal(globalOf(res.body, 'AVATAR_PROXY'), undefined);
+        assert.equal(globalOf(res.body, 'DEFAULT_AVATAR'), undefined);
       });
     }
   }
@@ -327,6 +329,39 @@ describe('environment and origin', () => {
       assert.equal(globalOf(res.body, 'recaptchaV3Key'), evil);
       assert.equal(globalOf(res.body, 'turnstileKey'), 'tk');
       assert.deepEqual(globalOf(res.body, 'oauthServices'), [{ name: evil }]);
+    } finally {
+      ctx.server.close();
+    }
+  });
+
+  test('AVATAR_PROXY is passed to the admin unless it is off', async () => {
+    const cases = [
+      [' https://avatar.example/proxy ', 'https://avatar.example/proxy'],
+      ['false', undefined],
+      ['FALSE', undefined],
+      ['0', undefined],
+      ['', undefined],
+    ];
+    for (const [value, want] of cases) {
+      const ctx = await serve({ env: { AVATAR_PROXY: value } });
+      try {
+        const res = await request(ctx.port, { path: '/' });
+        assert.equal(globalOf(res.body, 'AVATAR_PROXY'), want, JSON.stringify(value));
+      } finally {
+        ctx.server.close();
+      }
+    }
+  });
+
+  test('DEFAULT_AVATAR is passed to the admin and escaped', async () => {
+    const evil = 'https://cdn.example/cat.webp?</script><script>alert(1)</script>';
+    const ctx = await serve({ env: { DEFAULT_AVATAR: evil, AVATAR_PROXY: 'https://p.example/?a=<b>' } });
+    try {
+      const res = await request(ctx.port, { path: '/' });
+      assert.equal(globalOf(res.body, 'DEFAULT_AVATAR'), evil);
+      assert.equal(globalOf(res.body, 'AVATAR_PROXY'), 'https://p.example/?a=<b>');
+      assert.ok(!res.body.includes('<script>alert'));
+      assert.ok(!res.body.includes('<b>'));
     } finally {
       ctx.server.close();
     }

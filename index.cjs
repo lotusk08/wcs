@@ -2,10 +2,12 @@ const path = require('node:path');
 
 const Application = require('@waline/vercel');
 
+const { createAvatar } = require('./lib/avatar.cjs');
 const { createUi } = require('./lib/ui.cjs');
 
 const waline = Application({
   plugins: [],
+  avatarUrl: createAvatar(),
   async postSave() {},
 });
 

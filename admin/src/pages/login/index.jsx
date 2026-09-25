@@ -171,9 +171,9 @@ export default function Login() {
               const Icon = Icons[social];
 
               return (
-                <a key={social} href={buildOAuthURL(social)} className="social-btn" title={social}>
-                  {Icon ? <Icon className="social-icon" aria-hidden="true" /> : social}
-                  <span className="sr-only">{social}</span>
+                <a key={social} href={buildOAuthURL(social)} className={`social-btn ${social}`}>
+                  {Icon ? <Icon className="social-icon" aria-hidden="true" /> : null}
+                  <span className="social-name">{social}</span>
                 </a>
               );
             })}
