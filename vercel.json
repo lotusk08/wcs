@@ -16,7 +16,12 @@
       "src": "index.cjs",
       "use": "@vercel/node",
       "config": {
-        "includeFiles": ["admin/dist/**", "lib/**"]
+        "includeFiles": [
+          "admin/dist/**",
+          "lib/**",
+          "node_modules/@mathjax/mathjax-newcm-font/**/*",
+          "node_modules/mhchemparser/**/*"
+        ]
       }
     }
   ],
