@@ -14,7 +14,10 @@
     },
     {
       "src": "index.cjs",
-      "use": "@vercel/node"
+      "use": "@vercel/node",
+      "config": {
+        "includeFiles": ["admin/dist/**", "lib/**"]
+      }
     }
   ],
   "rewrites": [

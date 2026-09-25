@@ -1,0 +1,37 @@
+{
+  "name": "line-stevehoang-admin",
+  "version": "0.34.2-sh.1",
+  "private": true,
+  "description": "Comment management for line.stevehoang.com, forked from @waline/admin 0.34.2",
+  "license": "MIT",
+  "type": "module",
+  "main": "dist/admin.js",
+  "scripts": {
+    "dev": "vite",
+    "build": "NODE_ENV=production vite build",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@rematch/core": "2.2.0",
+    "classnames": "2.5.1",
+    "i18next": "26.4.2",
+    "i18next-browser-languagedetector": "8.2.1",
+    "md5": "2.3.0",
+    "qrcode.react": "4.2.0",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "react-i18next": "17.0.13",
+    "react-redux": "9.3.0",
+    "react-router": "8.3.1",
+    "redux": "5.0.1"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "6.1.1",
+    "vite": "8.2.2",
+    "vite-plugin-css-injected-by-js": "5.0.2",
+    "vite-plugin-svgr": "5.2.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

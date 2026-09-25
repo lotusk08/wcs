@@ -1,1 +1,4 @@
 .vercel
+admin/node_modules
+.local/
+node_modules/
