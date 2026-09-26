@@ -1,4 +1,4 @@
-import { SITE_URL, postLink, siteLink } from '../../utils/site.js';
+import { SITE_NAME, SITE_URL, postLink, siteLink } from '../../utils/site.js';
 
 const AVATAR_PROXY = typeof window.AVATAR_PROXY === 'string' ? window.AVATAR_PROXY.trim() : '';
 
@@ -20,6 +20,55 @@ export const buildAvatar = (avatar = '') => {
 };
 
 export const getPostUrl = (url) => postLink(url);
+
+export const postPath = (url) => {
+  try {
+    const target = new URL(getPostUrl(url));
+
+    return decodeURI(`${target.pathname}${target.search}`);
+  } catch {
+    return url;
+  }
+};
+
+export const postTitle = (url) => {
+  const segment = postPath(url)
+    .replace(/[?#].*$/u, '')
+    .split('/')
+    .filter(Boolean)
+    .at(-1);
+
+  if (!segment) return SITE_NAME;
+
+  const words = segment
+    .replace(/\.(?:html?|php|aspx?)$/iu, '')
+    .replaceAll(/[-_+]+/gu, ' ')
+    .replaceAll(/\s+/gu, ' ')
+    .trim();
+
+  return words ? `${words.charAt(0).toLocaleUpperCase()}${words.slice(1)}` : SITE_NAME;
+};
+
+export const excerpt = (html = '', max = 140) => {
+  const template = document.createElement('template');
+
+  template.innerHTML = html;
+
+  for (const img of template.content.querySelectorAll('img[alt]')) {
+    img.replaceWith(img.getAttribute('alt'));
+  }
+
+  const text = template.content.textContent.replaceAll(/\s+/gu, ' ').trim();
+
+  return text.length > max ? `${text.slice(0, max)}…` : text;
+};
+
+export const commentTime = (comment) => {
+  const date = parseDate(comment?.insertedAt ?? comment?.time);
+  const value = date.getTime();
+
+  return Number.isNaN(value) ? 0 : value;
+};
 
 const padZero = (num) => (num < 10 ? `0${num}` : num);
 

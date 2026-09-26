@@ -311,7 +311,7 @@ const HOSTILE = [
   await sleep(300);
   const xss = await page.evaluate(() => window.__xss);
   const foreign = await page.locator('li.comment', { hasText: 'foreign page url' }).locator('.post-chip').getAttribute('href').catch(() => 'missing');
-  check(4, 'post link for a foreign url stays on SITE_URL', foreign === 'https://stevehoang.com/phish', foreign);
+  check(4, 'post chip opens the conversation for its url', foreign.startsWith(`/thread?path=${encodeURIComponent('https://evil.com/phish')}&focus=`), foreign);
   check(4, 'hostile content: no script/iframe/on* in DOM', scriptTags === 0, `count=${scriptTags}`);
   check(4, 'hostile content: no javascript: URLs', jsHrefs === 0, `count=${jsHrefs}`);
   check(4, 'hostile content: nothing executed', xss === undefined && !page.__dialogs.some((d) => /xss|alert\(|^alert: [4-8]$/u.test(d)), `__xss=${xss} dialogs=${page.__dialogs.join(';')}`);
@@ -438,6 +438,152 @@ const HOSTILE = [
   check(9, 'failed avatars fall back to the cat, then a plain circle (no broken images)', broken === 0 && fallbacks === (await items().count()), `broken=${broken} fallbacks=${fallbacks}`);
   await page.screenshot({ path: `${OUT}/manager-desktop.png`, fullPage: true });
   await ctx.close();
+}
+
+{
+  const CONVO = '/posts/convo/';
+  const stamp = (minutes) => new Date(Date.now() - minutes * 60e3).toISOString().slice(0, 19).replace('T', ' ');
+  const anon = async (nick, comment, parent, minutes, status = 'approved') => {
+    const body = { nick, mail: `${nick.toLowerCase()}@example.com`, link: '', comment, url: CONVO, ua: 'Mozilla/5.0 Test' };
+    if (parent) Object.assign(body, { pid: parent.objectId, rid: parent.rid || parent.objectId, at: parent.nick });
+    const r = await api('comment', { method: 'POST', body });
+    await api(`comment/${r.data.objectId}`, { method: 'PUT', body: { status, insertedAt: stamp(minutes) }, token: adminToken });
+    return { ...r.data, rid: body.rid, nick };
+  };
+  const rootA = await anon('Alice', 'Root comment from Alice', null, 60);
+  const replyB = await anon('Bob', 'Bob answers Alice', rootA, 50);
+  const own = await api('comment', { method: 'POST', token: adminToken, body: { nick: 'Steve', mail: ADMIN.email, comment: 'Admin answers Bob', url: CONVO, ua: 'Mozilla/5.0 Test', pid: replyB.objectId, rid: rootA.objectId, at: 'Bob' } });
+  await api(`comment/${own.data.objectId}`, { method: 'PUT', body: { insertedAt: stamp(40) }, token: adminToken });
+  const ownC = { ...own.data, rid: rootA.objectId, nick: own.data.nick };
+  const replyD = await anon('Dana', 'Dana answers the admin, three levels deep', ownC, 30);
+  const rootE = await anon('Eve', 'Eve waits for approval', null, 20, 'waiting');
+  const rootF = await anon('Frank', 'Frank sells things', null, 10, 'spam');
+  const ids = [rootA, replyB, ownC, replyD, rootE, rootF].map((c) => `c-${c.objectId}`);
+
+  const ctx = await ctxFor({ token: adminToken, width: 390 });
+  const page = await open(ctx, '/');
+  const sheet = page.locator('.sheet-root.is-open');
+  const threadUrl = `/thread?path=${encodeURIComponent(CONVO)}`;
+  await page.locator('.segmented .seg', { hasText: 'Posts' }).click();
+  await page.waitForSelector('.post-row');
+  await sleep(200);
+  const first = page.locator(`.post-row[href="${threadUrl}"]`);
+  const times = await page.evaluate(() => [...document.querySelectorAll('.post-row time')].map((el) => Date.parse(el.dateTime)));
+  check(10, 'Posts view is linkable (?view=posts), one row per post, newest activity first', (await loc(page)) === '/?view=posts' && (await first.count()) === 1 && times.length >= 5 && times.every((v, i) => i === 0 || times[i - 1] >= v), `${await loc(page)} rows=${times.length}`);
+  const stats = await first.locator('.post-row-stats').textContent();
+  check(10, 'post row counts all statuses (6 comments, 1 waiting, 1 spam)', stats.includes('6 comments') && stats.includes('1 waiting') && stats.includes('1 spam'), stats);
+  check(10, 'post row shows title, path and the latest excerpt', (await first.locator('.post-row-title').textContent()) === 'Convo' && (await first.locator('.post-row-path').textContent()) === CONVO && (await first.locator('.post-row-excerpt').textContent()).includes('Frank sells things'));
+  await first.click();
+  await page.waitForSelector('.bubble-row');
+  await sleep(400);
+  check(10, 'row opens the conversation route', (await loc(page)) === threadUrl, await loc(page));
+  const order = await page.evaluate(() => [...document.querySelectorAll('.thread .bubble-row')].map((el) => el.id));
+  check(10, 'thread is chronological with replies under their root', JSON.stringify(order) === JSON.stringify(ids), order.join(','));
+  const nested = await page.evaluate((root) => [...document.querySelectorAll(`#${root}`)[0].closest('.thread-group').querySelectorAll('.thread-replies .bubble-row')].map((el) => el.id), ids[0]);
+  check(10, 'one level of nesting: every reply of the root sits in its replies list', JSON.stringify(nested) === JSON.stringify(ids.slice(1, 4)), nested.join(','));
+  const to = (id) => page.locator(`#${id} .bubble-to`).textContent().catch(() => null);
+  check(10, 'deeper replies say whom they answer', (await to(ids[1])) === null && (await to(ids[2])).includes('@Bob') && (await to(ids[3])).includes('@Steve'), `${await to(ids[2])} | ${await to(ids[3])}`);
+  check(10, 'admin comment is marked as own', (await page.locator(`#${ids[2]}`).getAttribute('class')).includes('is-own') && !(await page.locator(`#${ids[1]}`).getAttribute('class')).includes('is-own'));
+  check(10, 'waiting and spam carry badges', (await page.locator(`#${ids[4]} .tag-waiting`).count()) === 1 && (await page.locator(`#${ids[5]} .tag-danger`).count()) === 1 && (await page.locator(`#${ids[0]} .bubble-head .tag`).count()) === 0);
+  const newestVisible = await page.evaluate((id) => {
+    const rect = document.getElementById(id).getBoundingClientRect();
+    const composer = document.querySelector('.composer').getBoundingClientRect();
+    return rect.top >= 0 && rect.bottom <= composer.top + 1;
+  }, ids[5]);
+  check(10, 'opens scrolled to the newest comment, above the composer', newestVisible);
+  check(10, 'Comments tab stays active in the conversation', (await page.locator('.tabbar-item.active').textContent()).includes('Comments'));
+  check(10, 'post link in the header goes to SITE_URL', (await page.locator('.thread-link').getAttribute('href')) === `https://stevehoang.com${CONVO}`);
+  check(10, 'composer waits for a reply target', await page.locator('.composer textarea').isDisabled());
+
+  await page.locator(`#${ids[1]} .act-reply`).click();
+  const targetText = await page.locator('.composer-target').textContent();
+  await page.locator('.composer textarea').fill('Admin replies to Bob from the composer');
+  await page.locator('.composer-send').click();
+  await page.waitForSelector('.bubble-row:has-text("Admin replies to Bob from the composer")');
+  await sleep(300);
+  const added = page.locator('.bubble-row', { hasText: 'Admin replies to Bob from the composer' });
+  const addedId = (await added.getAttribute('id')).slice(2);
+  const inGroup = await added.evaluate((el, root) => el.closest('.thread-group').querySelector('.bubble-row').id === root && Boolean(el.closest('.thread-replies')), ids[0]);
+  const saved = (await api(`comment?path=${encodeURIComponent(CONVO)}`, { token: adminToken })).data.data.flatMap((c) => [c, ...c.children]).find((c) => String(c.objectId) === addedId);
+  check(10, 'reply from the composer lands under the right parent without a reload', targetText.includes('@Bob') && inGroup && (await added.locator('.bubble-to').textContent()).includes('@Bob') && String(saved?.pid) === String(replyB.objectId) && String(saved?.rid) === String(rootA.objectId) && (await page.evaluate(() => performance.getEntriesByType('navigation').length)) === 1, `target=${targetText} pid=${saved?.pid} rid=${saved?.rid}`);
+  check(10, 'composer clears its target after sending', (await page.locator('.composer-target').count()) === 0 && (await page.locator('.composer textarea').inputValue()) === '');
+  await page.locator(`#${ids[3]} .act-reply`).click();
+  await page.locator('.composer-clear').click();
+  check(10, 'the × clears the reply target', (await page.locator('.composer-target').count()) === 0 && (await page.locator('.composer textarea').isDisabled()));
+
+  await page.locator(`#${ids[4]} .act-approved`).click();
+  await sleep(400);
+  const statusOf = async (id) => (await api(`comment?path=${encodeURIComponent(CONVO)}`, { token: adminToken })).data.data.flatMap((c) => [c, ...c.children]).find((c) => String(c.objectId) === String(id))?.status;
+  check(10, 'approve from a bubble', (await page.locator(`#${ids[4]} .tag-waiting`).count()) === 0 && (await statusOf(rootE.objectId)) === 'approved' && !(await page.locator('.thread-stats').textContent()).includes('waiting'));
+  await page.locator(`#${ids[4]} .act-more`).click();
+  await sheet.locator('.act-spam').click();
+  await sleep(400);
+  check(10, 'mark as spam from the More sheet', (await page.locator(`#${ids[4]} .tag-danger`).count()) === 1 && (await statusOf(rootE.objectId)) === 'spam');
+  await page.locator(`#${ids[4]} .act-more`).click();
+  await sheet.locator('.act-waiting').click();
+  await sleep(400);
+  check(10, 'not spam from the More sheet', (await page.locator(`#${ids[4]} .tag-waiting`).count()) === 1 && (await statusOf(rootE.objectId)) === 'waiting');
+  await page.locator(`#${ids[0]} .act-more`).click();
+  await sheet.locator('.act-sticky').click();
+  await sleep(400);
+  check(10, 'pin a root from the More sheet', (await page.locator(`#${ids[0]} .tag-pin`).count()) === 1);
+  await page.locator(`#${ids[0]} .act-more`).click();
+  await sheet.locator('.act-sticky').click();
+  await sleep(400);
+  await page.locator(`#${ids[1]} .act-more`).click();
+  await sheet.locator('.act-edit').click();
+  await sheet.locator('textarea[name=comment]').fill('Bob answers Alice (edited)');
+  await sheet.locator('button[type=submit]').click();
+  await sleep(500);
+  check(10, 'edit from the More sheet updates the bubble in place', (await page.locator(`#${ids[1]} .bubble-content`).textContent()).includes('(edited)') && (await page.locator(`#${ids[0]} .tag-pin`).count()) === 0);
+  await page.locator(`#${ids[5]} .act-more`).click();
+  await sheet.locator('.act-delete').click();
+  const askedDelete = (await page.locator(`#${ids[5]}`).count()) === 1 && (await sheet.locator('.act-delete-confirm').count()) === 1;
+  await sheet.locator('.act-delete-confirm').click();
+  await sleep(500);
+  check(10, 'delete from the More sheet asks first, then removes', askedDelete && (await page.locator(`#${ids[5]}`).count()) === 0 && (await statusOf(rootF.objectId)) === undefined);
+  await page.screenshot({ path: `${OUT}/thread-390.png` });
+
+  await page.locator('.thread-back').click();
+  await page.waitForSelector('.post-row');
+  check(10, 'back button returns to the Posts view', (await loc(page)) === '/?view=posts', await loc(page));
+  await page.goForward();
+  await page.waitForSelector('.bubble-row');
+  check(10, 'browser forward returns to the conversation', (await loc(page)) === threadUrl, await loc(page));
+
+  await page.goto(`${BASE}${threadUrl}&focus=${replyD.objectId}`);
+  await settle(page);
+  await page.waitForSelector(`#${ids[3]}.is-flash`, { timeout: 3000 }).catch(() => {});
+  const focused = await page.evaluate((id) => {
+    const el = document.getElementById(id);
+    const rect = el.getBoundingClientRect();
+    return el.classList.contains('is-flash') && rect.top >= 0 && rect.bottom <= innerHeight;
+  }, ids[3]);
+  check(10, 'focus deep link scrolls to and highlights the comment', focused);
+  await page.locator('.thread-back').click();
+  await settle(page);
+  check(10, 'back from a direct link goes to the Posts view', (await loc(page)) === '/?view=posts', await loc(page));
+
+  await page.goto(`${BASE}/`);
+  await settle(page);
+  await page.waitForFunction(() => !document.querySelector('.comment-list.is-loading'));
+  const card = page.locator('li.comment', { hasText: 'Admin replies to Bob from the composer' });
+  check(10, 'list card post chip links to the conversation with focus', (await card.locator('.post-chip').getAttribute('href')) === `${threadUrl}&focus=${addedId}`);
+  await card.locator('.act-more').click();
+  await sheet.locator('.act-thread').click();
+  await page.waitForSelector('.bubble-row');
+  check(10, 'More sheet opens the conversation', (await loc(page)) === `${threadUrl}&focus=${addedId}`, await loc(page));
+  check(10, 'no page errors in the conversation view', !page.__console.filter((e) => !e.startsWith('Failed to load resource')).length, page.__console.join(' | '));
+  await ctx.close();
+
+  const gctx = await ctxFor({ token: guestToken });
+  const gp = await open(gctx, threadUrl);
+  check(10, 'guest cannot open a conversation', (await loc(gp)) === '/profile', await loc(gp));
+  await gctx.close();
+  const octx = await ctxFor();
+  const op = await open(octx, threadUrl);
+  check(10, 'logged out conversation goes to login and back', (await loc(op)) === `/login?redirect=${encodeURIComponent(threadUrl)}`, await loc(op));
+  await octx.close();
 }
 
 {
@@ -604,7 +750,7 @@ const HOSTILE = [
 }
 
 const pagesLoggedOut = ['/', '/login', '/register', '/forgot', '/nope'];
-const pagesAdmin = ['/', '/profile', '/user', '/migration'];
+const pagesAdmin = ['/', '/?view=posts', `/thread?path=${encodeURIComponent('/posts/convo/')}`, '/profile', '/user', '/migration'];
 const pagesGuest = ['/profile'];
 const overflow = [];
 for (const width of [320, 360, 390, 414, 768, 1280]) {
@@ -616,13 +762,14 @@ for (const width of [320, 360, 390, 414, 768, 1280]) {
         await page.goto(BASE + p);
         await settle(page);
         if (p === '/' && who === 'admin') await page.waitForFunction(() => !document.querySelector('.comment-list.is-loading')).catch(() => {});
+        if (p.startsWith('/thread')) await page.waitForSelector('.bubble-row').catch(() => {});
         const m = await page.evaluate(() => {
           const doc = document.documentElement;
           const wide = [...document.querySelectorAll('body *')].filter((el) => el.getBoundingClientRect().right > doc.clientWidth + 1).slice(0, 3).map((el) => `${el.tagName.toLowerCase()}.${el.className}`);
           return { sw: doc.scrollWidth, cw: doc.clientWidth, wide };
         });
         if (m.sw > m.cw) overflow.push(`${who} ${p} ${width} ${scheme} sw=${m.sw} cw=${m.cw} ${m.wide.join(',')}`);
-        const name = `${who}${p.replace(/\//gu, '-') || '-root'}-${width}-${scheme}`.replace(/-$/u, '-root');
+        const name = `${who}${p.replace(/[?=&%]+.*$/u, (m) => (m.startsWith('?view') ? '-posts' : '')).replace(/\//gu, '-') || '-root'}-${width}-${scheme}`.replace(/-$/u, '-root');
         if (width === 360 || width === 1280 || (width === 768 && scheme === 'light')) await page.screenshot({ path: `${OUT}/${name}.png`, fullPage: true });
       }
       await ctx.close();

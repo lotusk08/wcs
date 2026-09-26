@@ -12,7 +12,7 @@ instead of upstream's demo page at `/` and the unpkg-hosted admin at `/ui`.
 
 | Path | Method | Served by |
 | --- | --- | --- |
-| `/`, `/login`, `/register`, `/forgot`, `/profile`, `/user`, `/migration` (trailing slash and any query allowed) | GET, HEAD | Admin HTML shell (`lib/ui.cjs`). This shadows Waline's deprecated un-prefixed `GET /user` API; `/api/user` is unaffected |
+| `/`, `/login`, `/register`, `/forgot`, `/profile`, `/user`, `/migration`, `/thread` (trailing slash and any query allowed) | GET, HEAD | Admin HTML shell (`lib/ui.cjs`). This shadows Waline's deprecated un-prefixed `GET /user` API; `/api/user` is unaffected |
 | `/admin.js` | GET, HEAD | `admin/dist/admin.js`; immutable when `?v=` matches its hash, 5 minutes otherwise, ETag/304; 503 if it is not built |
 | `/ui`, `/ui/*` | GET, HEAD | 301 to the same path without `/ui`, query kept, repeated slashes collapsed so `/ui//evil.com` stays on this host. Keeps Waline's own emails and redirects (`/ui/login`, `/ui/profile?token=…`) working |
 | any path containing a `..` segment | any | 404 |
@@ -34,6 +34,17 @@ is deliberately no `Cross-Origin-Opener-Policy`, since the blog's login popup
 reads the token back through `window.opener`. The OAuth service list is fetched from
 `OAUTH_URL` with a 2-second timeout and cached for 10 minutes; if it fails the
 page is still served with an empty list (retried after a minute).
+
+## Conversations
+
+`/?view=posts` lists one row per post: the admin list (`type=list`, no status
+filter, 100 a page) is read for its newest 1,000 comments and grouped by `url`,
+so a site with more says it is showing the latest 1,000. `/thread?path=<url>`
+(`&focus=<id>` to scroll to one comment) reads the post through Waline's
+public `GET /api/comment?path=`, which returns every status to an
+administrator, 100 top-level comments a page with their replies, and pages
+until it has them all. Both are kept in memory for the session, shown at once
+on a return visit and refreshed behind it.
 
 ## Environment
 

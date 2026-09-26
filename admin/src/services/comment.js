@@ -25,3 +25,15 @@ export const deleteComment = (id) =>
     url: `comment/${id}`,
     method: 'DELETE',
   });
+
+export const getRecentComments = ({ page = 1, pageSize = 100 }) =>
+  request({
+    url: `comment?type=list&owner=all&page=${page}&pageSize=${pageSize}`,
+    method: 'GET',
+  });
+
+export const getPostComments = ({ path, page = 1, pageSize = 100 }) =>
+  request({
+    url: `comment?path=${encodeURIComponent(path)}&page=${page}&pageSize=${pageSize}&sortBy=insertedAt_asc`,
+    method: 'GET',
+  });

@@ -3,7 +3,7 @@ import cls from 'classnames';
 import React, { useEffect, useMemo, useState } from 'react';
 import { Trans, useTranslation } from 'react-i18next';
 import { useDispatch, useSelector } from 'react-redux';
-import { Link, NavLink, useNavigate } from 'react-router';
+import { Link, NavLink, useLocation, useNavigate } from 'react-router';
 
 import { LANGUAGE_OPTIONS } from '../locales/index.js';
 import { SITE_NAME, SITE_URL } from '../utils/site.js';
@@ -108,6 +108,7 @@ function AccountSheet({ open, onClose, user, onLogout }) {
 export default function Header({ title }) {
   const dispatch = useDispatch();
   const navigate = useNavigate();
+  const location = useLocation();
   const user = useSelector((state) => state.user);
   const { t } = useTranslation();
   const [latestVersion, setLatestVersion] = useState(null);
@@ -137,6 +138,7 @@ export default function Header({ title }) {
   };
 
   const isAdmin = user?.type === 'administrator';
+  const inThread = location.pathname === '/thread';
   const navItems = [
     { to: '/', label: t('comments'), short: t('comments'), icon: 'comments', end: true },
     { to: '/user', label: t('user'), short: t('users'), icon: 'users' },
@@ -164,7 +166,7 @@ export default function Header({ title }) {
                   key={item.to}
                   to={item.to}
                   end={item.end}
-                  className={({ isActive }) => cls('nav-link', { active: isActive })}
+                  className={({ isActive }) => cls('nav-link', { active: isActive || (item.end && inThread) })}
                 >
                   {item.label}
                 </NavLink>
@@ -209,7 +211,7 @@ export default function Header({ title }) {
               key={item.to}
               to={item.to}
               end={item.end}
-              className={({ isActive }) => cls('tabbar-item', { active: isActive })}
+              className={({ isActive }) => cls('tabbar-item', { active: isActive || (item.end && inThread) })}
             >
               <Icon name={item.icon} size={22} />
               <span className="tabbar-label">{item.short}</span>

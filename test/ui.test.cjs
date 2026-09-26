@@ -58,7 +58,7 @@ describe('ui router', () => {
   });
   after(() => ctx.server.close());
 
-  const shellRoutes = ['/', '/login', '/register', '/forgot', '/profile', '/user', '/migration'];
+  const shellRoutes = ['/', '/login', '/register', '/forgot', '/profile', '/user', '/migration', '/thread'];
 
   for (const route of shellRoutes) {
     for (const p of new Set([route, `${route}/`.replace('//', '/'), `${route}?token=abc&x=1`])) {
@@ -91,6 +91,40 @@ describe('ui router', () => {
       });
     }
   }
+
+  test('GET /thread with an encoded post path and focus serves the shell', async () => {
+    const paths = [
+      `/thread?path=${encodeURIComponent('/posts/xin-chào/')}&focus=42`,
+      `/thread/?path=${encodeURIComponent('https://evil.com/phish')}`,
+      '/thread?path=%2Fposts%2F%3Cscript%3E%2F',
+    ];
+    for (const p of paths) {
+      const before = ctx.calls.length;
+      const res = await request(ctx.port, { path: p });
+      assert.equal(res.status, 200, p);
+      assert.equal(res.headers['content-type'], 'text/html; charset=utf-8');
+      assert.equal(ctx.calls.length, before, p);
+      assert.doesNotMatch(res.body, /<script>|evil\.com/u);
+    }
+  });
+
+  test('HEAD /thread returns headers and no body', async () => {
+    const res = await request(ctx.port, { method: 'HEAD', path: '/thread?path=%2Fx%2F' });
+    assert.equal(res.status, 200);
+    assert.equal(res.body, '');
+  });
+
+  test('nested and look-alike thread paths pass through', async () => {
+    for (const p of ['/thread/x', '/threads', '/THREAD', '/thread.json']) {
+      const res = await request(ctx.port, { path: p });
+      assert.equal(JSON.parse(res.body).url, p);
+    }
+  });
+
+  test('POST /thread passes through to Waline', async () => {
+    const res = await request(ctx.port, { method: 'POST', path: '/thread?path=%2Fx' });
+    assert.deepEqual(JSON.parse(res.body), { waline: true, url: '/thread?path=%2Fx' });
+  });
 
   test('HEAD / returns headers and no body', async () => {
     const res = await request(ctx.port, { method: 'HEAD', path: '/' });
@@ -136,6 +170,7 @@ describe('ui router', () => {
       '/ui/': '/',
       '/ui/login': '/login',
       '/ui/profile?token=x': '/profile?token=x',
+      '/ui/thread?path=%2Fposts%2Fx%2F&focus=1': '/thread?path=%2Fposts%2Fx%2F&focus=1',
       '/ui/profile/?token=x&a=%20b': '/profile/?token=x&a=%20b',
       '/ui/login?redirect=%2Fui%2Fuser': '/login?redirect=%2Fui%2Fuser',
       '/ui//evil.com': '/evil.com',

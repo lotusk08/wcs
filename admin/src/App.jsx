@@ -8,6 +8,7 @@ import Layout from './components/Layout.jsx';
 import Forgot from './pages/forgot/index.jsx';
 import Login from './pages/login/index.jsx';
 import ManageComments from './pages/manage-comments/index.jsx';
+import Thread from './pages/manage-comments/thread.jsx';
 import Migration from './pages/migration/index.jsx';
 import Profile from './pages/profile/index.jsx';
 import Register from './pages/register/index.jsx';
@@ -67,6 +68,7 @@ export default function App() {
               </Access>
             }
           />
+          <Route path="/thread" element={admin(<Thread />)} />
           <Route path="/user" element={admin(<User />)} />
           <Route path="/migration" element={admin(<Migration />)} />
           <Route path="/ui/*" element={<Legacy />} />

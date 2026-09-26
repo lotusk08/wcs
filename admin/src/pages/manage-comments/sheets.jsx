@@ -6,17 +6,7 @@ import Avatar from '../../components/Avatar.jsx';
 import BottomSheet from '../../components/BottomSheet.jsx';
 import Icon from '../../components/icon/ui.jsx';
 import { externalLink } from '../../utils/site.js';
-import { formatDate, getPostUrl, hasRegion } from './utils.js';
-
-const excerpt = (html = '') => {
-  const template = document.createElement('template');
-
-  template.innerHTML = html;
-
-  const text = template.content.textContent.replaceAll(/\s+/gu, ' ').trim();
-
-  return text.length > 140 ? `${text.slice(0, 140)}…` : text;
-};
+import { excerpt, formatDate, getPostUrl, hasRegion } from './utils.js';
 
 function CopyButton({ value, onError }) {
   const { t } = useTranslation();

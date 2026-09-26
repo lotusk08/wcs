@@ -139,6 +139,12 @@ const PATHS = {
       <circle cx="8" cy="8" r="1.3" />
     </>
   ),
+  send: (
+    <>
+      <path d="M4 11.2 20 4l-6.6 16-2.6-6.4Z" />
+      <path d="M10.8 13.6 20 4" />
+    </>
+  ),
   mail: (
     <>
       <rect x="3" y="5.5" width="18" height="13" rx="1.5" />

@@ -2,6 +2,7 @@ import cls from 'classnames';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useSelector } from 'react-redux';
+import { Link, useNavigate, useSearchParams } from 'react-router';
 
 import Avatar from '../../components/Avatar.jsx';
 import Icon from '../../components/icon/ui.jsx';
@@ -15,37 +16,14 @@ import {
   updateComment,
 } from '../../services/comment.js';
 import { externalLink, resolveContent } from '../../utils/site.js';
+import CommentTime from './CommentTime.jsx';
+import PostsView from './posts.jsx';
 import { CommentSheet, EditSheet, ReplySheet } from './sheets.jsx';
-import { formatDate, getPostUrl, hasRegion, parseDate, relativeDate } from './utils.js';
+import { threadLink } from './threads.js';
+import { hasRegion, postPath } from './utils.js';
 
 const STATUSES = ['approved', 'waiting', 'spam'];
 const OWNERS = ['all', 'mine'];
-
-const postPath = (url) => {
-  try {
-    const target = new URL(getPostUrl(url));
-
-    return decodeURI(`${target.pathname}${target.search}`);
-  } catch {
-    return url;
-  }
-};
-
-function CommentTime({ value }) {
-  const { t, i18n } = useTranslation();
-  const date = parseDate(value);
-  const label = relativeDate(value, i18n.language);
-
-  return (
-    <time
-      className="comment-time"
-      dateTime={Number.isNaN(date.getTime()) ? undefined : date.toISOString()}
-      title={formatDate(value)}
-    >
-      {label ?? t('just now')}
-    </time>
-  );
-}
 
 export default function ManageComments() {
   const { t } = useTranslation();
@@ -68,7 +46,10 @@ export default function ManageComments() {
   const [confirmBulk, setConfirmBulk] = useState(false);
   const [busy, setBusy] = useState(false);
   const [searching, setSearching] = useState(false);
+  const [params, setParams] = useSearchParams();
+  const navigate = useNavigate();
   const keywordRef = useRef(null);
+  const byPost = params.get('view') === 'posts';
 
   const fail = (err) => setNotice(err?.message || String(err));
 
@@ -89,8 +70,8 @@ export default function ManageComments() {
   }, [filter, list.page]);
 
   useEffect(() => {
-    load();
-  }, [load]);
+    if (!byPost) load();
+  }, [load, byPost]);
 
   useEffect(() => {
     if (searching) keywordRef.current?.focus();
@@ -100,6 +81,20 @@ export default function ManageComments() {
     setFilter((prev) => ({ ...prev, ...patch }));
     setList((prev) => ({ ...prev, page: 1 }));
     setSheetOpen(false);
+  };
+
+  const showPosts = () => {
+    setSelecting(false);
+    setSelected([]);
+    setConfirmBulk(false);
+    setSearching(false);
+    setSheetOpen(false);
+    setParams({ view: 'posts' });
+  };
+
+  const showList = (owner) => {
+    if (owner !== filter.owner) changeFilter({ owner });
+    if (byPost) setParams({});
   };
 
   const openSheet = (type, comment) => {
@@ -249,6 +244,13 @@ export default function ManageComments() {
   const moreFor = (comment) =>
     [
       {
+        key: 'thread',
+        name: t('view conversation'),
+        icon: 'comments',
+        show: true,
+        run: () => navigate(threadLink(comment.url, comment.objectId)),
+      },
+      {
         key: 'spam',
         name: t('mark as spam'),
         icon: 'spam',
@@ -316,39 +318,49 @@ export default function ManageComments() {
     <Layout title={t('manage comments')} className={cls('manage', { 'is-selecting': selecting })}>
       <Notice onClose={() => setNotice('')}>{notice}</Notice>
 
-      <div className="subbar">
-        <div className="tabs" role="tablist" aria-label={t('status')}>
-          {STATUSES.map((status) => (
-            <button
-              key={status}
-              type="button"
-              role="tab"
-              aria-selected={filter.status === status}
-              className={cls('tab', { active: filter.status === status })}
-              onClick={() => changeFilter({ status })}
-            >
-              <span className="tab-label">{t(status)}</span>
-              {status !== 'approved' && list[`${status}Count`] > 0 ? (
-                <span className="count">{list[`${status}Count`]}</span>
-              ) : null}
-            </button>
-          ))}
+      {byPost ? null : (
+        <div className="subbar">
+          <div className="tabs" role="tablist" aria-label={t('status')}>
+            {STATUSES.map((status) => (
+              <button
+                key={status}
+                type="button"
+                role="tab"
+                aria-selected={filter.status === status}
+                className={cls('tab', { active: filter.status === status })}
+                onClick={() => changeFilter({ status })}
+              >
+                <span className="tab-label">{t(status)}</span>
+                {status !== 'approved' && list[`${status}Count`] > 0 ? (
+                  <span className="count">{list[`${status}Count`]}</span>
+                ) : null}
+              </button>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
 
-      <div className={cls('filterbar', { searching })}>
-        <div className="segmented" role="group" aria-label={t('owner')}>
+      <div className={cls('filterbar', { searching: searching && !byPost, 'by-post': byPost })}>
+        <div className="segmented" role="group" aria-label={t('view')}>
           {OWNERS.map((owner) => (
             <button
               key={owner}
               type="button"
-              aria-pressed={filter.owner === owner}
-              className={cls('seg', { active: filter.owner === owner })}
-              onClick={() => changeFilter({ owner })}
+              aria-pressed={!byPost && filter.owner === owner}
+              className={cls('seg', { active: !byPost && filter.owner === owner })}
+              onClick={() => showList(owner)}
             >
               {t(owner)}
             </button>
           ))}
+          <button
+            type="button"
+            aria-pressed={byPost}
+            className={cls('seg', 'seg-posts', { active: byPost })}
+            onClick={showPosts}
+          >
+            {t('by post')}
+          </button>
         </div>
 
         <form className="search" role="search" onSubmit={submitSearch}>
@@ -389,7 +401,7 @@ export default function ManageComments() {
         </div>
       </div>
 
-      {filter.keyword && !searching ? (
+      {filter.keyword && !searching && !byPost ? (
         <div className="keyword-chip">
           <Icon name="search" size={16} />
           <span className="keyword-text">{filter.keyword}</span>
@@ -407,193 +419,206 @@ export default function ManageComments() {
         </div>
       ) : null}
 
-      <ul className={cls('comment-list', { 'is-loading': loading })} aria-busy={loading}>
-        {loading && !loaded
-          ? [0, 1, 2].map((key) => (
-              <li key={key} className="comment-skeleton" aria-hidden="true">
-                <span className="sk sk-avatar" />
-                <span className="sk sk-line sk-short" />
-                <span className="sk sk-line" />
-                <span className="sk sk-line sk-mid" />
+      {byPost ? (
+        <PostsView onError={setNotice} />
+      ) : (
+        <>
+          <ul className={cls('comment-list', { 'is-loading': loading })} aria-busy={loading}>
+            {loading && !loaded
+              ? [0, 1, 2].map((key) => (
+                  <li key={key} className="comment-skeleton" aria-hidden="true">
+                    <span className="sk sk-avatar" />
+                    <span className="sk sk-line sk-short" />
+                    <span className="sk sk-line" />
+                    <span className="sk sk-line sk-mid" />
+                  </li>
+                ))
+              : null}
+            {loaded && !loading && !list.data.length ? (
+              <li className="empty">
+                <Icon name="inbox" size={36} />
+                <p>{t('no comments')}</p>
               </li>
-            ))
-          : null}
-        {loaded && !loading && !list.data.length ? (
-          <li className="empty">
-            <Icon name="inbox" size={36} />
-            <p>{t('no comments')}</p>
-          </li>
-        ) : null}
-        {list.data.map((comment) => {
-          const { objectId, nick, mail, link, ip, addr, url, sticky, time, insertedAt } = comment;
-          const isSelected = selected.includes(objectId);
+            ) : null}
+            {list.data.map((comment) => {
+              const { objectId, nick, mail, link, ip, addr, url, sticky, time, insertedAt } = comment;
+              const isSelected = selected.includes(objectId);
 
-          return (
-            <li
-              key={objectId}
-              id={`comment-${objectId}`}
-              className={cls('comment', { selected: isSelected, sticky })}
-              onClick={
-                selecting
-                  ? (event) => {
-                      if (event.target.closest('.comment-select')) return;
-                      event.preventDefault();
-                      toggleSelected(objectId);
-                    }
-                  : undefined
-              }
-            >
-              {selecting ? (
-                <label className="comment-select">
-                  <input
-                    type="checkbox"
-                    className="comment-check"
-                    checked={isSelected}
-                    onChange={() => toggleSelected(objectId)}
-                  />
-                  <span className="sr-only">
-                    {t('select item')}: {nick}
-                  </span>
-                </label>
-              ) : null}
-              <div className="comment-body">
-                <div className="comment-head">
-                  <Avatar src={comment.avatar} size={32} className="comment-avatar" />
-                  <div className="comment-who">
-                    <strong className="comment-author">
-                      {link && !selecting ? (
-                        <a href={externalLink(link)} rel="external nofollow noreferrer" target="_blank">
-                          {nick}
-                        </a>
-                      ) : (
-                        nick
-                      )}
-                    </strong>
-                    {sticky ? (
-                      <span className="tag tag-pin">
-                        <Icon name="pin" size={12} />
-                        {t('pinned')}
+              return (
+                <li
+                  key={objectId}
+                  id={`comment-${objectId}`}
+                  className={cls('comment', { selected: isSelected, sticky })}
+                  onClick={
+                    selecting
+                      ? (event) => {
+                          if (event.target.closest('.comment-select')) return;
+                          event.preventDefault();
+                          toggleSelected(objectId);
+                        }
+                      : undefined
+                  }
+                >
+                  {selecting ? (
+                    <label className="comment-select">
+                      <input
+                        type="checkbox"
+                        className="comment-check"
+                        checked={isSelected}
+                        onChange={() => toggleSelected(objectId)}
+                      />
+                      <span className="sr-only">
+                        {t('select item')}: {nick}
                       </span>
-                    ) : null}
-                    <span className="comment-extra">
-                      {[mail, ip, hasRegion(addr) ? addr : ''].filter(Boolean).join(' · ')}
-                    </span>
+                    </label>
+                  ) : null}
+                  <div className="comment-body">
+                    <div className="comment-head">
+                      <Avatar src={comment.avatar} size={32} className="comment-avatar" />
+                      <div className="comment-who">
+                        <strong className="comment-author">
+                          {link && !selecting ? (
+                            <a href={externalLink(link)} rel="external nofollow noreferrer" target="_blank">
+                              {nick}
+                            </a>
+                          ) : (
+                            nick
+                          )}
+                        </strong>
+                        {sticky ? (
+                          <span className="tag tag-pin">
+                            <Icon name="pin" size={12} />
+                            {t('pinned')}
+                          </span>
+                        ) : null}
+                        <span className="comment-extra">
+                          {[mail, ip, hasRegion(addr) ? addr : ''].filter(Boolean).join(' · ')}
+                        </span>
+                      </div>
+                      <CommentTime value={insertedAt ?? time} />
+                    </div>
+
+                    {selecting ? (
+                      <span className="post-chip">
+                        <span>{postPath(url)}</span>
+                      </span>
+                    ) : (
+                      <Link className="post-chip" to={threadLink(url, objectId)} title={t('view conversation')}>
+                        <Icon name="comments" size={14} />
+                        <span>{postPath(url)}</span>
+                      </Link>
+                    )}
+
+                    <div
+                      className="comment-content"
+                      // oxlint-disable-next-line react/no-danger
+                      dangerouslySetInnerHTML={{ __html: resolveContent(comment.comment) }}
+                    />
+
+                    {selecting ? null : (
+                      <div className="comment-actions">
+                        {primaryFor(comment).map(({ key, name, icon, run }) => (
+                          <button type="button" key={key} className={cls('act', `act-${key}`)} onClick={run}>
+                            <Icon name={icon} size={18} />
+                            <span>{name}</span>
+                          </button>
+                        ))}
+                        <button
+                          type="button"
+                          className="act act-more"
+                          aria-haspopup="dialog"
+                          aria-label={`${t('more actions')}: ${nick}`}
+                          onClick={() => openSheet('more', comment)}
+                        >
+                          <Icon name="more" size={18} />
+                          <span aria-hidden="true">{t('more')}</span>
+                        </button>
+                      </div>
+                    )}
                   </div>
-                  <CommentTime value={insertedAt ?? time} />
+                </li>
+              );
+            })}
+          </ul>
+
+          <Paginator
+            current={list.page}
+            total={list.totalPages}
+            onChange={(page) => {
+              setList((prev) => ({ ...prev, page }));
+              window.scrollTo({ top: 0 });
+            }}
+          />
+
+          {selecting ? (
+            <div className="bulkbar" role="region" aria-label={t('selected items')}>
+              {confirmBulk ? (
+                <div className="bulk-confirm" role="alertdialog" aria-labelledby="bulk-confirm-text">
+                  <p id="bulk-confirm-text">
+                    {t('delete multiple confirm')} ({selected.length}) {t('cannot be undone')}
+                  </p>
+                  <div className="bulk-actions">
+                    <button type="button" className="btn" onClick={() => setConfirmBulk(false)}>
+                      {t('cancel')}
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-danger btn-solid act-delete-confirm"
+                      disabled={busy}
+                      onClick={() => runBulk('delete')}
+                    >
+                      <Icon name="trash" size={18} />
+                      {t('delete')}
+                    </button>
+                  </div>
                 </div>
-
-                <a className="post-chip" href={getPostUrl(url)} target="_blank" rel="noreferrer" title={t('open post')}>
-                  <span>{postPath(url)}</span>
-                </a>
-
-                <div
-                  className="comment-content"
-                  // oxlint-disable-next-line react/no-danger
-                  dangerouslySetInnerHTML={{ __html: resolveContent(comment.comment) }}
-                />
-
-                {selecting ? null : (
-                  <div className="comment-actions">
-                    {primaryFor(comment).map(({ key, name, icon, run }) => (
-                      <button type="button" key={key} className={cls('act', `act-${key}`)} onClick={run}>
+              ) : (
+                <>
+                  <div className="bulk-top">
+                    <label className="check bulk-all">
+                      <input
+                        type="checkbox"
+                        checked={allSelected}
+                        disabled={!list.data.length}
+                        onChange={() =>
+                          setSelected(allSelected ? [] : list.data.map(({ objectId }) => objectId))
+                        }
+                      />
+                      <span>{selected.length ? t('{{count}} selected', { count: selected.length }) : t('select all')}</span>
+                    </label>
+                    <button type="button" className="btn btn-quiet bulk-cancel" onClick={stopSelecting}>
+                      {t('cancel')}
+                    </button>
+                  </div>
+                  <div className="bulk-actions">
+                    {bulkActions.map(({ key, name, icon }) => (
+                      <button
+                        type="button"
+                        key={`${key}-${icon}`}
+                        className={cls('act', `act-${key}`)}
+                        disabled={!selected.length || busy}
+                        onClick={() => runBulk(key)}
+                      >
                         <Icon name={icon} size={18} />
                         <span>{name}</span>
                       </button>
                     ))}
                     <button
                       type="button"
-                      className="act act-more"
-                      aria-haspopup="dialog"
-                      aria-label={`${t('more actions')}: ${nick}`}
-                      onClick={() => openSheet('more', comment)}
+                      className="act act-delete danger"
+                      disabled={!selected.length || busy}
+                      onClick={() => setConfirmBulk(true)}
                     >
-                      <Icon name="more" size={18} />
-                      <span aria-hidden="true">{t('more')}</span>
+                      <Icon name="trash" size={18} />
+                      <span>{t('delete')}</span>
                     </button>
                   </div>
-                )}
-              </div>
-            </li>
-          );
-        })}
-      </ul>
-
-      <Paginator
-        current={list.page}
-        total={list.totalPages}
-        onChange={(page) => {
-          setList((prev) => ({ ...prev, page }));
-          window.scrollTo({ top: 0 });
-        }}
-      />
-
-      {selecting ? (
-        <div className="bulkbar" role="region" aria-label={t('selected items')}>
-          {confirmBulk ? (
-            <div className="bulk-confirm" role="alertdialog" aria-labelledby="bulk-confirm-text">
-              <p id="bulk-confirm-text">
-                {t('delete multiple confirm')} ({selected.length}) {t('cannot be undone')}
-              </p>
-              <div className="bulk-actions">
-                <button type="button" className="btn" onClick={() => setConfirmBulk(false)}>
-                  {t('cancel')}
-                </button>
-                <button
-                  type="button"
-                  className="btn btn-danger btn-solid act-delete-confirm"
-                  disabled={busy}
-                  onClick={() => runBulk('delete')}
-                >
-                  <Icon name="trash" size={18} />
-                  {t('delete')}
-                </button>
-              </div>
+                </>
+              )}
             </div>
-          ) : (
-            <>
-              <div className="bulk-top">
-                <label className="check bulk-all">
-                  <input
-                    type="checkbox"
-                    checked={allSelected}
-                    disabled={!list.data.length}
-                    onChange={() =>
-                      setSelected(allSelected ? [] : list.data.map(({ objectId }) => objectId))
-                    }
-                  />
-                  <span>{selected.length ? t('{{count}} selected', { count: selected.length }) : t('select all')}</span>
-                </label>
-                <button type="button" className="btn btn-quiet bulk-cancel" onClick={stopSelecting}>
-                  {t('cancel')}
-                </button>
-              </div>
-              <div className="bulk-actions">
-                {bulkActions.map(({ key, name, icon }) => (
-                  <button
-                    type="button"
-                    key={`${key}-${icon}`}
-                    className={cls('act', `act-${key}`)}
-                    disabled={!selected.length || busy}
-                    onClick={() => runBulk(key)}
-                  >
-                    <Icon name={icon} size={18} />
-                    <span>{name}</span>
-                  </button>
-                ))}
-                <button
-                  type="button"
-                  className="act act-delete danger"
-                  disabled={!selected.length || busy}
-                  onClick={() => setConfirmBulk(true)}
-                >
-                  <Icon name="trash" size={18} />
-                  <span>{t('delete')}</span>
-                </button>
-              </div>
-            </>
-          )}
-        </div>
-      ) : null}
+          ) : null}
+        </>
+      )}
 
       <CommentSheet
         open={sheetOpen && sheet.type === 'more'}
