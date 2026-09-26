@@ -663,7 +663,7 @@ describe('passkeys', () => {
         [undefined, false],
         ['', false],
         ['{not json', false],
-        ['{"id":"a","publicKey":"b","userId":"1"}', false],
+        ['{"id":"a","publicKey":"b","userId":"1"}', true],
         ['[{"id":"a"}]', false],
         ['[]', false],
         ['[{"id":"a","publicKey":"b","userId":"1"}]', true],

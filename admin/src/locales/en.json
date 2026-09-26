@@ -198,6 +198,7 @@
   "passkey failed": "The passkey couldn't be verified. Try again or use your password.",
   "passkey register failed": "The passkey couldn't be added. Try again.",
   "passkey exists": "This device already has a passkey for this site.",
+  "passkey env invalid": "PASSKEYS is set in Vercel but couldn't be read. Paste the value exactly as copied (it starts with [ and ends with ]), then redeploy.",
   "passkey list error": "Couldn't load the passkeys.",
   "no passkeys": "No passkeys are set up yet.",
   "passkey added": "Added {{date}}",

@@ -195,6 +195,7 @@
   "passkey failed": "无法验证通行密钥。请重试或使用密码。",
   "passkey register failed": "无法添加通行密钥，请重试。",
   "passkey exists": "此设备已有本站的通行密钥。",
+  "passkey env invalid": "Vercel 中已设置 PASSKEYS，但无法读取。请原样粘贴复制的值（以 [ 开头、以 ] 结尾），然后重新部署。",
   "passkey list error": "无法加载通行密钥。",
   "no passkeys": "尚未设置通行密钥。",
   "passkey added": "添加于 {{date}}",

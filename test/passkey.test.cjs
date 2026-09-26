@@ -5,7 +5,7 @@ const { after, before, describe, test } = require('node:test');
 
 const jwt = require('jsonwebtoken');
 
-const { createChallenges, createLimiter, createPasskey, parsePasskeys } = require('../lib/passkey.cjs');
+const { createChallenges, createLimiter, createPasskey, parsePasskeys, passkeyStatus } = require('../lib/passkey.cjs');
 
 const SECRET = 'test-secret';
 const HOST = 'line.stevehoang.com';
@@ -330,7 +330,7 @@ describe('routes', () => {
       assert.equal(res.json.errno, 'passkey_not_configured');
       const list = await call(ctx.port, '/api/passkey', { method: 'GET', token: tokenFor(1) });
       assert.equal(list.status, 200);
-      assert.deepEqual(list.json.data, { enabled: false, rpID: HOST, passkeys: [] });
+      assert.deepEqual(list.json.data, { enabled: false, status: value === undefined ? 'none' : 'invalid', rpID: HOST, passkeys: [] });
     }
     delete ctx.env.PASSKEYS;
   });
@@ -579,5 +579,35 @@ describe('public endpoints are rate limited per IP', () => {
     const second = await call(ctx.port, '/api/passkey/login', { body: {}, headers: ip });
     assert.equal(second.status, 429);
     assert.equal(second.json.errno, 'passkey_rate_limited');
+  });
+});
+
+describe('PASSKEYS pasted by hand', () => {
+  const entry = { id: 'AbC-_1', publicKey: 'pUbK3y_-', userId: 1, name: 'iPhone' };
+  const json = JSON.stringify([entry]);
+
+  test('reads the value however it was pasted', () => {
+    for (const value of [
+      json,
+      `  ${json}\n`,
+      `PASSKEYS=${json}`,
+      `'${json}'`,
+      JSON.stringify(json),
+      JSON.stringify(entry),
+      `﻿${json}`,
+    ]) {
+      const list = parsePasskeys(value);
+      assert.equal(list.length, 1, value);
+      assert.equal(list[0].id, 'AbC-_1');
+      assert.equal(list[0].userId, '1');
+    }
+  });
+
+  test('reports whether the value could be read', () => {
+    assert.equal(passkeyStatus(undefined), 'none');
+    assert.equal(passkeyStatus('  '), 'none');
+    assert.equal(passkeyStatus(json), 'ok');
+    assert.equal(passkeyStatus('[{"id":"x"'), 'invalid');
+    assert.equal(passkeyStatus('[]'), 'invalid');
   });
 });

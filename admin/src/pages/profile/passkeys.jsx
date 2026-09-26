@@ -31,7 +31,11 @@ export default function Passkeys() {
     let alive = true;
 
     getPasskeys().then(
-      (data) => alive && setList(Array.isArray(data.passkeys) ? data.passkeys : []),
+      (data) => {
+        if (!alive) return;
+        setList(Array.isArray(data.passkeys) ? data.passkeys : []);
+        if (data.status === 'invalid') setError(t('passkey env invalid'));
+      },
       () => {
         if (!alive) return;
         setList([]);

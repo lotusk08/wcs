@@ -195,6 +195,7 @@
   "passkey failed": "Không xác minh được passkey. Hãy thử lại hoặc dùng mật khẩu.",
   "passkey register failed": "Không thêm được passkey. Hãy thử lại.",
   "passkey exists": "Thiết bị này đã có passkey cho trang này.",
+  "passkey env invalid": "PASSKEYS đã có trên Vercel nhưng không đọc được. Hãy dán đúng giá trị đã sao chép (bắt đầu bằng [ và kết thúc bằng ]), rồi deploy lại.",
   "passkey list error": "Không tải được danh sách passkey.",
   "no passkeys": "Chưa có passkey nào.",
   "passkey added": "Thêm ngày {{date}}",
