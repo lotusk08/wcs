@@ -16,7 +16,7 @@ import {
   describePasskey,
   isAborted,
   passkeyAutofill,
-  passkeyEnabled,
+  passkeySupported,
   startAuthentication,
 } from '../../utils/passkey.js';
 import { SITE_NAME, safePath } from '../../utils/site.js';
@@ -25,6 +25,27 @@ import { externalReturn } from '../../utils/site-redirect.js';
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/u;
 const CODE = /^\d{6}$/u;
 const AUTOFILL_REFRESH = 4 * 60 * 1000;
+const STEP = 'verify';
+
+const digitsOf = (value) => String(value ?? '').replace(/\D+/gu, '').slice(0, 6);
+
+const searchWithout = (search, key) => {
+  const params = new URLSearchParams(search);
+
+  params.delete(key);
+
+  const rest = params.toString();
+
+  return rest ? `?${rest}` : '';
+};
+
+const searchWith = (search, key, value) => {
+  const params = new URLSearchParams(search);
+
+  params.set(key, value);
+
+  return `?${params.toString()}`;
+};
 
 export default function Login() {
   const { t } = useTranslation();
@@ -34,25 +55,27 @@ export default function Login() {
   const user = useSelector((state) => state.user);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(() => (takeSessionExpired() ? t('session expired') : false));
-  const [twoFactor, setTwoFactor] = useState(null);
+  const [email, setEmail] = useState('');
+  const [remember, setRemember] = useState(false);
+  const [pendingEmail, setPendingEmail] = useState('');
+  const [code, setCode] = useState('');
+  const pending = useRef(null);
+  const focusNext = useRef(null);
   const busy = useRef(false);
-  const lookups = useRef(new Map());
-  const codeInput = useRef(null);
   const formRef = useRef(null);
+  const codeInput = useRef(null);
   const autofill = useRef(null);
   const [passkeyBusy, setPasskeyBusy] = useState(false);
-  const passkeyOn = useMemo(() => passkeyEnabled(), []);
+  const passkeyOn = useMemo(() => passkeySupported(), []);
   const execute = useCaptcha({
     sitekey: window.turnstileKey ?? window.recaptchaV3Key,
     hideDefaultBadge: true,
   });
 
-  const redirect = useMemo(
-    () => new URLSearchParams(location.search).get('redirect') ?? '',
-    [location.search],
-  );
-
-  const needsCode = Boolean(twoFactor?.enabled);
+  const params = useMemo(() => new URLSearchParams(location.search), [location.search]);
+  const redirect = params.get('redirect') ?? '';
+  const wantsCode = params.get('step') === STEP;
+  const verifying = wantsCode && Boolean(pendingEmail);
 
   useEffect(() => {
     if (!user?.objectId) {
@@ -76,8 +99,63 @@ export default function Login() {
   }, [user, redirect, navigate]);
 
   useEffect(() => {
-    if (needsCode) codeInput.current?.focus();
-  }, [needsCode]);
+    if (wantsCode && !pending.current) {
+      navigate({ pathname: location.pathname, search: searchWithout(location.search, 'step') }, { replace: true });
+    } else if (!wantsCode && pending.current) {
+      pending.current = null;
+      focusNext.current ??= 'password';
+      setPendingEmail('');
+      setCode('');
+      setError(false);
+    }
+    // oxlint-disable-next-line react-hooks/exhaustive-deps
+  }, [wantsCode]);
+
+  useEffect(() => {
+    if (verifying) {
+      codeInput.current?.focus();
+
+      return;
+    }
+
+    const target = focusNext.current;
+
+    focusNext.current = null;
+    if (!target) return;
+
+    const field = formRef.current?.[target];
+
+    field?.focus();
+    if (target === 'email') field?.select();
+  }, [verifying]);
+
+  const leaveCode = (focus = 'password') => {
+    if (busy.current) return;
+    focusNext.current = focus;
+    if (location.state?.step === STEP) {
+      navigate(-1);
+    } else {
+      navigate({ pathname: location.pathname, search: searchWithout(location.search, 'step') }, { replace: true });
+    }
+  };
+
+  const leaveRef = useRef(leaveCode);
+
+  leaveRef.current = leaveCode;
+
+  useEffect(() => {
+    if (!verifying) return undefined;
+
+    const onKey = (event) => {
+      if (event.key !== 'Escape' || event.defaultPrevented) return;
+      event.preventDefault();
+      leaveRef.current('password');
+    };
+
+    document.addEventListener('keydown', onKey);
+
+    return () => document.removeEventListener('keydown', onKey);
+  }, [verifying]);
 
   const finishPasskey = async (response, challengeToken) => {
     busy.current = true;
@@ -85,11 +163,7 @@ export default function Login() {
     setError(false);
 
     try {
-      await dispatch.user.passkeyLogin({
-        response,
-        challengeToken,
-        remember: Boolean(formRef.current?.remember?.checked),
-      });
+      await dispatch.user.passkeyLogin({ response, challengeToken, remember });
 
       return true;
     } catch (err) {
@@ -107,7 +181,7 @@ export default function Login() {
   finishRef.current = finishPasskey;
 
   useEffect(() => {
-    if (!passkeyOn) return undefined;
+    if (!passkeyOn || verifying) return undefined;
 
     let alive = true;
     let timer = null;
@@ -162,7 +236,7 @@ export default function Login() {
       clearTimeout(timer);
       WebAuthnAbortService.cancelCeremony();
     };
-  }, [passkeyOn]);
+  }, [passkeyOn, verifying]);
 
   const onPasskey = async () => {
     if (busy.current) return;
@@ -192,51 +266,24 @@ export default function Login() {
     if (!(await finishPasskey(response, challengeToken))) autofill.current?.run();
   };
 
-  const lookup2FA = (email) => {
-    const key = email.toLowerCase();
-
-    if (!lookups.current.has(key)) {
-      lookups.current.set(
-        key,
-        get2FAStatus(email).then(
-          (data) => Boolean(data.enable),
-          () => {
-            lookups.current.delete(key);
-
-            return null;
-          },
-        ),
-      );
-    }
-
-    return lookups.current.get(key);
-  };
-
-  const check2FA = async (email) => {
-    if (!EMAIL.test(email)) return null;
-
-    const enabled = await lookup2FA(email);
-
-    if (enabled !== null) {
-      setTwoFactor((current) => (current?.email === email && current.enabled === enabled ? current : { email, enabled }));
-    }
-
-    return enabled;
-  };
-
-  const onEmailChange = (event) => {
-    const email = event.target.value.trim();
-
-    if (twoFactor && twoFactor.email !== email) setTwoFactor(null);
-  };
-
   const describe = (err, withCode) => {
     if (err?.errno === 'network') return t('network error');
     if (err?.status === 403) return t('captcha failed');
+    if (err?.status === 429) return t('too many attempts');
     if (err?.status >= 500) return t('server error');
     if (err?.errno === 1001) return t('please input a valid email');
 
     return withCode ? t('2fa code error') : t('email or password error');
+  };
+
+  const captcha = async () => {
+    try {
+      const token = await execute('login');
+
+      return { ok: true, recaptchaV3: window.recaptchaV3Key ? token : undefined, turnstile: window.turnstileKey ? token : undefined };
+    } catch {
+      return { ok: false };
+    }
   };
 
   const onSubmit = async (event) => {
@@ -245,16 +292,15 @@ export default function Login() {
     if (busy.current) return;
 
     const form = event.currentTarget;
-    const email = form.email.value.trim();
+    const address = form.email.value.trim();
     const password = form.password.value;
-    const remember = form.remember.checked;
 
-    if (!email) {
+    if (!address) {
       form.email.focus();
       return setError(t('please input email'));
     }
 
-    if (!EMAIL.test(email)) {
+    if (!EMAIL.test(address)) {
       form.email.focus();
       return setError(t('please input a valid email'));
     }
@@ -267,58 +313,51 @@ export default function Login() {
     busy.current = true;
     setLoading(true);
     setError(false);
-
-    const hadCodeField = Boolean(form.code);
+    setEmail(address);
 
     try {
-      const enabled = await check2FA(email);
-      const code = hadCodeField ? form.code.value.replace(/\s+/gu, '') : '';
-
-      if (enabled && !hadCodeField) {
-        setError(t('2fa code required'));
-        return;
-      }
-
-      if (enabled && !code) {
-        form.code.focus();
-        setError(t('please input 2fa code'));
-        return;
-      }
-
-      if (enabled && !CODE.test(code)) {
-        form.code.focus();
-        form.code.select();
-        setError(t('2fa code format'));
-        return;
-      }
-
-      let token;
+      let enabled = null;
 
       try {
-        token = await execute('login');
-      } catch {
+        enabled = Boolean((await get2FAStatus(address)).enable);
+      } catch (err) {
+        if (err?.errno === 'network' || err?.status >= 500) {
+          setError(describe(err, false));
+          return;
+        }
+      }
+
+      if (enabled) {
+        pending.current = { email: address, password, remember };
+        form.password.value = '';
+        setCode('');
+        setPendingEmail(address);
+        navigate(
+          { pathname: location.pathname, search: searchWith(location.search, 'step', STEP) },
+          { state: { step: STEP } },
+        );
+        return;
+      }
+
+      const check = await captcha();
+
+      if (!check.ok) {
         setError(t('captcha failed'));
         return;
       }
 
       try {
         await dispatch.user.login({
-          email,
+          email: address,
           password,
-          code: enabled ? code : undefined,
           remember,
-          recaptchaV3: window.recaptchaV3Key ? token : undefined,
-          turnstile: window.turnstileKey ? token : undefined,
+          recaptchaV3: check.recaptchaV3,
+          turnstile: check.turnstile,
         });
       } catch (err) {
-        setError(describe(err, enabled));
-        if (enabled && form.code) {
-          form.code.value = '';
-          form.code.focus();
-        } else {
-          form.password.select();
-          form.password.focus();
-        }
+        setError(describe(err, false));
+        form.password.select();
+        form.password.focus();
       }
     } finally {
       busy.current = false;
@@ -326,16 +365,159 @@ export default function Login() {
     }
   };
 
+  const verify = async (value) => {
+    if (busy.current || !pending.current) return;
+
+    if (!value) {
+      codeInput.current?.focus();
+      setError(t('please input 2fa code'));
+      return;
+    }
+
+    if (!CODE.test(value)) {
+      codeInput.current?.focus();
+      setError(t('2fa code format'));
+      return;
+    }
+
+    busy.current = true;
+    setLoading(true);
+    setError(false);
+
+    let signedIn = false;
+
+    try {
+      const check = await captcha();
+
+      if (!check.ok) {
+        setError(t('captcha failed'));
+        return;
+      }
+
+      const { email: address, password, remember: keep } = pending.current;
+
+      try {
+        await dispatch.user.login({
+          email: address,
+          password,
+          code: value,
+          remember: keep,
+          recaptchaV3: check.recaptchaV3,
+          turnstile: check.turnstile,
+        });
+        signedIn = true;
+        pending.current = null;
+      } catch (err) {
+        setError(describe(err, true));
+        setCode('');
+      }
+    } finally {
+      busy.current = false;
+      setLoading(false);
+      if (!signedIn) requestAnimationFrame(() => codeInput.current?.focus());
+    }
+  };
+
+  const onCodeChange = (event) => {
+    const value = digitsOf(event.target.value);
+
+    setCode(value);
+    if (value.length === 6) verify(value);
+  };
+
+  const onCodePaste = (event) => {
+    const text = event.clipboardData?.getData('text') ?? '';
+    const value = digitsOf(text);
+
+    if (!value) return;
+    event.preventDefault();
+    setCode(value);
+    if (value.length === 6) verify(value);
+  };
+
+  const onVerify = (event) => {
+    event.preventDefault();
+    verify(digitsOf(code));
+  };
+
   const keepQuery = redirect ? `?redirect=${encodeURIComponent(redirect)}` : '';
+  const dismiss = () => setError(false);
+
+  if (verifying) {
+    return (
+      <Layout narrow>
+        <section className="auth auth-verify" aria-labelledby="verify-title">
+          <span className="auth-badge" aria-hidden="true">
+            <Icon name="shield" size={24} />
+          </span>
+          <h1 className="page-title" id="verify-title">
+            {t('two-step verification')}
+          </h1>
+          <p className="auth-lede" id="verify-lede">
+            {t('enter the 6-digit code')}
+          </p>
+          <div className="auth-account">
+            <span className="auth-account-email">{pendingEmail}</span>
+            <button type="button" className="link-btn act-other-account" onClick={() => leaveCode('email')} disabled={loading}>
+              {t('use a different account')}
+            </button>
+          </div>
+
+          <Notice onClose={dismiss} id="verify-error">
+            {error}
+          </Notice>
+
+          <form name="verify" method="post" className="form" onSubmit={onVerify} aria-busy={loading} noValidate>
+            <input type="text" name="username" autoComplete="username" value={pendingEmail} readOnly hidden />
+            <label className="field">
+              <span className="field-label">{t('2fa code')}</span>
+              <input
+                ref={codeInput}
+                type="text"
+                name="code"
+                className="input input-code"
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                pattern="\d{6}"
+                maxLength={6}
+                placeholder="000000"
+                autoFocus
+                required
+                value={code}
+                readOnly={loading}
+                onChange={onCodeChange}
+                onPaste={onCodePaste}
+                aria-invalid={error ? true : undefined}
+                aria-describedby={error ? 'verify-error verify-lede' : 'verify-lede'}
+              />
+            </label>
+            <button type="submit" className="btn btn-primary btn-block btn-verify" disabled={loading} aria-busy={loading}>
+              {loading ? <span className="spinner" aria-hidden="true" /> : null}
+              <span>{loading ? t('verifying code') : t('verify code')}</span>
+            </button>
+          </form>
+
+          <p className="auth-links">
+            <button type="button" className="link-btn act-back" onClick={() => leaveCode('password')} disabled={loading}>
+              <Icon name="prev" size={18} />
+              <span>{t('back to password')}</span>
+            </button>
+          </p>
+          <div className="captcha-container" />
+        </section>
+      </Layout>
+    );
+  }
 
   return (
     <Layout narrow>
-      <Notice onClose={() => setError(false)}>{error}</Notice>
       <section className="auth">
         <h1 className="page-title">{t('login')}</h1>
         <p className="auth-lede">
           {SITE_NAME} · {t('comments')}
         </p>
+
+        <Notice onClose={dismiss}>{error}</Notice>
 
         {passkeyOn ? (
           <div className="passkey-login">
@@ -376,46 +558,35 @@ export default function Login() {
               spellCheck={false}
               required
               className="input"
-              onChange={onEmailChange}
-              onBlur={(event) => check2FA(event.target.value.trim())}
+              defaultValue={email}
             />
           </label>
           <label className="field">
             <span className="field-label">{t('password')}</span>
             <input type="password" name="password" autoComplete="current-password" required className="input" />
           </label>
-          {needsCode ? (
-            <label className="field">
-              <span className="field-label">{t('2fa code')}</span>
-              <input
-                ref={codeInput}
-                type="text"
-                name="code"
-                inputMode="numeric"
-                pattern="[0-9]*"
-                autoComplete="one-time-code"
-                maxLength={7}
-                required
-                className="input"
-              />
-              <span className="field-hint">{t('2fa code hint')}</span>
-            </label>
-          ) : null}
-          <div className="captcha-container" />
           <div className="form-row">
             <label className="check">
-              <input type="checkbox" name="remember" /> <span>{t('remember me')}</span>
+              <input
+                type="checkbox"
+                name="remember"
+                checked={remember}
+                onChange={(event) => setRemember(event.target.checked)}
+              />{' '}
+              <span>{t('remember me')}</span>
             </label>
             <Link to={`/forgot${keepQuery}`}>{t('forgot password')}</Link>
           </div>
           <button
             type="submit"
-            className={passkeyOn ? 'btn btn-block' : 'btn btn-primary btn-block'}
+            className={passkeyOn ? 'btn btn-block btn-login' : 'btn btn-primary btn-block btn-login'}
             disabled={loading || passkeyBusy}
+            aria-busy={loading}
           >
             {loading ? t('loading') : t('login')}
           </button>
         </form>
+        <div className="captcha-container" />
       </section>
     </Layout>
   );

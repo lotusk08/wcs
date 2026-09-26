@@ -16,8 +16,18 @@ import { store } from './store/index.js';
 
 function Home() {
   const user = useSelector((state) => state.user);
+  const { search } = useLocation();
 
   if (!user?.objectId) return <Login />;
+  if (new URLSearchParams(search).has('step')) {
+    const params = new URLSearchParams(search);
+
+    params.delete('step');
+
+    const rest = params.toString();
+
+    return <Navigate to={rest ? `/?${rest}` : '/'} replace />;
+  }
   if (user.type !== 'administrator') return <Navigate to="/profile" replace />;
 
   return <ManageComments />;

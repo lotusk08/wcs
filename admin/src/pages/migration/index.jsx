@@ -1,7 +1,10 @@
 import React, { useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import BottomSheet from '../../components/BottomSheet.jsx';
+import Icon from '../../components/icon/ui.jsx';
 import Layout from '../../components/Layout.jsx';
+import Notice from '../../components/Notice.jsx';
 import download from '../../utils/download.js';
 import readFileAsync from '../../utils/readFileAsync.js';
 import request from '../../utils/request.js';
@@ -9,26 +12,42 @@ import request from '../../utils/request.js';
 export default function Migration() {
   const [importLoading, setImportLoading] = useState(false);
   const [exportLoading, setExportLoading] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  const [importNotice, setImportNotice] = useState(null);
+  const [exportNotice, setExportNotice] = useState(null);
 
   const { t } = useTranslation();
   const uploadRef = useRef(null);
 
   const importDB = () => {
-    if (!confirm(t('import clear data confirm'))) {
-      return;
-    }
+    setImportNotice(null);
+    setConfirming(true);
+  };
 
+  const chooseFile = () => {
+    setConfirming(false);
     uploadRef.current.click();
   };
 
   // oxlint-disable-next-line max-statements
   const importData = async (event) => {
-    try {
-      const text = await readFileAsync(event.target.files[0]);
-      const data = JSON.parse(text);
+    const file = event.target.files?.[0];
 
-      if (!data || data.type !== 'waline') {
-        alert('import data format not support!');
+    if (!file) return;
+    setImportNotice(null);
+
+    try {
+      const text = await readFileAsync(file);
+      let data = null;
+
+      try {
+        data = JSON.parse(text);
+      } catch {
+        data = null;
+      }
+
+      if (!data || data.type !== 'waline' || !Array.isArray(data.tables) || !data.data) {
+        setImportNotice({ tone: 'error', text: t('import format error') });
 
         return;
       }
@@ -159,12 +178,9 @@ export default function Migration() {
         ]);
       }
 
-      alert(t('import success'));
-      location.reload();
+      setImportNotice({ tone: 'success', text: t('import success') });
     } catch (err) {
-      // oxlint-disable-next-line no-console
-      console.log(err);
-      alert(err.message);
+      setImportNotice({ tone: 'error', text: t('import failed', { message: err?.message || t('request failed') }) });
     } finally {
       setImportLoading(false);
       event.target.value = null;
@@ -173,10 +189,13 @@ export default function Migration() {
 
   const exportDB = async () => {
     setExportLoading(true);
+    setExportNotice(null);
     try {
       const data = await request('db');
 
       download(JSON.stringify(data, null, '\t'), 'waline.json', 'application/javascript');
+    } catch (err) {
+      setExportNotice({ tone: 'error', text: t('export failed', { message: err?.message || t('request failed') }) });
     } finally {
       setExportLoading(false);
     }
@@ -187,6 +206,9 @@ export default function Migration() {
       <div className="migration">
         <section className="panel">
           <h2 className="panel-title">{t('export')}</h2>
+          <Notice tone={exportNotice?.tone} onClose={() => setExportNotice(null)}>
+            {exportNotice?.text}
+          </Notice>
           <p className="muted">waline.json</p>
           <button className="btn btn-primary" type="button" onClick={exportDB} disabled={exportLoading}>
             {exportLoading ? t('exporting') : t('export')}
@@ -194,6 +216,9 @@ export default function Migration() {
         </section>
         <section className="panel">
           <h2 className="panel-title">{t('import')}</h2>
+          <Notice tone={importNotice?.tone} onClose={() => setImportNotice(null)} className="import-notice">
+            {importNotice?.text}
+          </Notice>
           <p className="muted">{t('import clear data confirm')}</p>
           <button className="btn btn-danger" type="button" onClick={importDB} disabled={Boolean(importLoading)}>
             {Array.isArray(importLoading) ? t(...importLoading) : t('import')}
@@ -207,6 +232,20 @@ export default function Migration() {
           />
         </section>
       </div>
+      <BottomSheet open={confirming} onClose={() => setConfirming(false)} title={t('import confirm title')}>
+        <div className="confirm-box" role="alertdialog" aria-labelledby="confirm-import-text">
+          <p id="confirm-import-text">{t('import clear data confirm')}</p>
+          <div className="confirm-actions">
+            <button type="button" className="btn" data-autofocus onClick={() => setConfirming(false)}>
+              {t('cancel')}
+            </button>
+            <button type="button" className="btn btn-danger btn-solid act-import-confirm" onClick={chooseFile}>
+              <Icon name="transfer" size={18} />
+              {t('choose file')}
+            </button>
+          </div>
+        </div>
+      </BottomSheet>
     </Layout>
   );
 }

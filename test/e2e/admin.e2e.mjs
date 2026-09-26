@@ -20,6 +20,20 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const browser = await chromium.launch();
 const events = [];
+const dialogs = [];
+const watchDialogs = (page) => {
+  if (page.__watched) return;
+  page.__watched = true;
+  page.__dialogs ??= [];
+  page.on('dialog', async (d) => {
+    const line = `${d.type()}: ${d.message()}`;
+    page.__dialogs.push(line);
+    events.push(line);
+    dialogs.push(`${page.url()} ${line}`);
+    console.log(`FAIL native dialog on ${page.url()} — ${line}`);
+    await d.dismiss().catch(() => {});
+  });
+};
 const cspViolations = [];
 const imageRequests = [];
 const PROXY = process.env.AVATAR_PROXY || 'https://avatar.example/proxy';
@@ -30,6 +44,7 @@ const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR
 
 async function ctxFor({ token, width = 1280, scheme = 'light', locale = 'en-US', storage, cat = false } = {}) {
   const ctx = await browser.newContext({ viewport: { width, height: 800 }, colorScheme: scheme, locale, acceptDownloads: true, hasTouch: width < 720 });
+  ctx.on('page', watchDialogs);
   if (token) await ctx.addInitScript((t) => sessionStorage.setItem('TOKEN', t), token);
   if (storage) await ctx.addInitScript((s) => Object.entries(s).forEach(([k, v]) => localStorage.setItem(k, v)), storage);
   await ctx.addInitScript(() => {
@@ -52,14 +67,8 @@ async function ctxFor({ token, width = 1280, scheme = 'light', locale = 'en-US',
 
 async function open(ctx, path) {
   const page = await ctx.newPage();
-  page.__dialogs = [];
+  watchDialogs(page);
   page.__console = [];
-  page.on('dialog', async (d) => {
-    page.__dialogs.push(`${d.type()}: ${d.message()}`);
-    events.push(`${d.type()}: ${d.message()}`);
-    if (d.type() === 'prompt') await d.accept(page.__promptValue ?? '');
-    else await d.accept();
-  });
   page.__bad404 = [];
   page.on('response', (r) => r.status() === 404 && page.__bad404.push(r.url()));
   page.on('pageerror', (e) => page.__console.push(`pageerror ${e.message}`));
@@ -151,7 +160,8 @@ const GUEST = { nick: 'Guest', email: 'guest@example.com', password: 'Guest-pass
   }
   const tokenLeft = await page.evaluate(() => sessionStorage.getItem('TOKEN'));
   check(1, '/ui/profile?token=x: bogus token discarded', !tokenLeft, String(tokenLeft));
-  check(1, 'no page errors logged out', !page.__console.filter((e) => !e.includes('401')).length, page.__console.join(' | '));
+  const passkeyProbe = page.__bad404.length > 0 && page.__bad404.every((u) => new URL(u).pathname === '/api/passkey/login/options');
+  check(1, 'no page errors logged out', !page.__console.filter((e) => !e.includes('401') && !(passkeyProbe && e.includes('404'))).length, page.__console.join(' | '));
   await ctx.close();
 }
 
@@ -599,14 +609,41 @@ const HOSTILE = [
   const me = await api('token', { token: adminToken });
   check(5, 'profile name/url saved', me.data.display_name === 'Steve Edited' && me.data.url === 'https://stevehoang.com/about', `${me.data.display_name} ${me.data.url}`);
   check(5, 'header shows new name without reload', (await page.locator('.me-name').textContent()) === 'Steve Edited');
-  page.__promptValue = 'https://img.example/me.png';
+  const profileNotice = page.locator('section.panel').filter({ has: page.locator('form[name=profile]') }).locator('.notice');
+  check(5, 'profile save shows an inline success notice', /profile saved/iu.test((await profileNotice.textContent().catch(() => '')) ?? '') && (await profileNotice.getAttribute('class')).includes('notice-success'), await profileNotice.textContent().catch(() => 'none'));
+  await page.fill('input[name=screenName]', '');
+  await page.locator('form[name=profile] button[type=submit]').click();
+  await sleep(200);
+  check(5, 'profile save error (empty nickname) is inline, no dialog, no request', /nickname and personal homepage are required/iu.test(await profileNotice.textContent().catch(() => '')) && (await profileNotice.getAttribute('class')).includes('notice-error') && !page.__dialogs.length && (await api('token', { token: adminToken })).data.display_name === 'Steve Edited', await profileNotice.textContent().catch(() => 'none'));
+  await profileNotice.locator('.notice-close').click();
+  check(5, 'profile notice can be dismissed', (await profileNotice.count()) === 0);
+  await page.fill('input[name=screenName]', 'Steve Edited');
+  const avatarSheet = page.locator('.sheet-root.is-open');
   await page.locator('.profile-avatar-btn').click();
-  await sleep(600);
+  await avatarSheet.locator('input[name=avatar]').waitFor({ timeout: 3000 }).catch(() => {});
+  check(9, 'change avatar opens an in-app sheet with a URL field (no prompt)', (await avatarSheet.locator('input[name=avatar]').count()) === 1 && (await page.evaluate(() => document.activeElement?.name)) === 'avatar' && !page.__dialogs.length);
+  await avatarSheet.locator('input[name=avatar]').fill('not a url');
+  await avatarSheet.locator('.act-avatar-save').click();
+  await sleep(200);
+  check(9, 'a bad avatar URL is refused inline in the sheet', /starts with http/iu.test(await avatarSheet.locator('.notice').textContent().catch(() => '')) && (await avatarSheet.count()) === 1, await avatarSheet.locator('.notice').textContent().catch(() => 'none'));
+  await page.setViewportSize({ width: 390, height: 800 });
+  await page.screenshot({ path: `${OUT}/profile-avatar-sheet-390.png` });
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await avatarSheet.locator('input[name=avatar]').fill('https://img.example/me.png');
+  await avatarSheet.locator('.act-avatar-save').click();
+  await page.locator('.sheet-root').waitFor({ state: 'detached', timeout: 3000 }).catch(() => {});
+  await sleep(300);
   const avatarSrcs = await page.evaluate(() => [...document.querySelectorAll('.profile-avatar, .me-avatar')].map((el) => el.getAttribute('src')));
   const changed = await api('token', { token: adminToken });
-  check(9, 'profile avatar change shows the new (proxied) URL immediately', imageRequests.includes(proxied('https://img.example/me.png')) && changed.data.avatar === proxied('https://img.example/me.png') && page.__dialogs.some((d) => d.startsWith('prompt')), `${avatarSrcs.join(' ')} server=${changed.data.avatar}`);
+  check(9, 'profile avatar change shows the new (proxied) URL immediately', imageRequests.includes(proxied('https://img.example/me.png')) && changed.data.avatar === proxied('https://img.example/me.png') && /avatar updated/iu.test(await page.locator('.profile-card .notice').textContent().catch(() => '')), `${avatarSrcs.join(' ')} server=${changed.data.avatar}`);
   check(9, 'avatar change without reload', (await page.evaluate(() => performance.getEntriesByType('navigation').length)) === 1 && (await h1(page)) === 'Settings');
   const pw = page.locator('#change-password');
+  await pw.locator('input[name=password]').fill('New-pass-22');
+  await pw.locator('input[name=confirm]').fill('New-pass-23');
+  await pw.locator('button[type=submit]').click();
+  await sleep(200);
+  check(5, 'password mismatch is an inline error in the panel, no dialog, not saved', /don't match/iu.test(await pw.locator('.notice').textContent().catch(() => '')) && !page.__dialogs.length && (await api('token', { method: 'POST', body: { email: ADMIN.email, password: 'New-pass-23' } })).errno !== 0, await pw.locator('.notice').textContent().catch(() => 'none'));
+  await pw.screenshot({ path: `${OUT}/profile-password-mismatch.png` });
   await pw.locator('input[name=password]').fill('New-pass-22');
   await pw.locator('input[name=confirm]').fill('New-pass-22');
   await pw.locator('button[type=submit]').click();
@@ -614,6 +651,7 @@ const HOSTILE = [
   const bad = await api('token', { method: 'POST', body: { email: ADMIN.email, password: ADMIN.password } });
   const good = await api('token', { method: 'POST', body: { email: ADMIN.email, password: 'New-pass-22' } });
   check(5, 'password change: old rejected, new accepted', bad.errno !== 0 && good.errno === 0, `old=${bad.errno} new=${good.errno}`);
+  check(5, 'password change confirms inline', /password updated/iu.test(await pw.locator('.notice-success').textContent().catch(() => '')), await pw.locator('.notice').textContent().catch(() => 'none'));
   const p2 = await open(await ctxFor());
   await login(p2, ADMIN.email, 'New-pass-22');
   check(5, 'UI login with new password', (await loc(p2)) === '/' && (await h1(p2)) === 'Comments');
@@ -627,10 +665,43 @@ const HOSTILE = [
   const qr = await tfa.locator('.qr svg path').count();
   const secret = await tfa.locator('.mono').textContent().catch(() => '');
   check(5, '2FA step 3 renders QR and secret', qr > 0 && /^[A-Z2-7]{16,}$/u.test(secret), secret);
-  await tfa.locator('input[name=code]').fill('123456');
+  const tfaCode = tfa.locator('input[name=code]');
+  const tfaPosts = [];
+  page.on('request', (r) => r.method() === 'POST' && new URL(r.url()).pathname === '/api/token/2fa' && tfaPosts.push(r.url()));
+  await tfaCode.fill('12');
   await tfa.locator('button[type=submit]').click();
-  await sleep(500);
-  check(5, '2FA wrong code rejected with message', page.__dialogs.some((d) => d.startsWith('alert')), page.__dialogs.join(';'));
+  await sleep(200);
+  check(5, '2FA setup: a short code is refused inline without a request', /6 digits/iu.test(await tfa.locator('.field-error').textContent().catch(() => '')) && tfaPosts.length === 0 && (await tfaCode.getAttribute('aria-invalid')) === 'true', await tfa.locator('.field-error').textContent().catch(() => 'none'));
+  const setupSecret = secret.trim();
+  const setupValid = new Set([-60, -30, 0, 30, 60].map((o) => speakeasy.totp({ secret: setupSecret, encoding: 'base32', time: Math.floor(Date.now() / 1000) + o })));
+  let setupWrong = 0;
+  while (setupValid.has(String(setupWrong).padStart(6, '0'))) setupWrong += 1;
+  await tfaCode.fill(String(setupWrong).padStart(6, '0'));
+  await tfa.locator('button[type=submit]').click();
+  await tfa.locator('.field-error').waitFor({ timeout: 5000 }).catch(() => {});
+  await sleep(200);
+  check(5, '2FA wrong code rejected inline, field cleared and focused, no dialog', /didn't match/iu.test(await tfa.locator('.field-error').textContent().catch(() => '')) && tfaPosts.length === 1 && (await tfaCode.inputValue()) === '' && (await page.evaluate(() => document.activeElement?.name)) === 'code' && !page.__dialogs.length, `${await tfa.locator('.field-error').textContent().catch(() => 'none')} posts=${tfaPosts.length}`);
+  await tfa.screenshot({ path: `${OUT}/profile-2fa-error.png` });
+  await tfaCode.fill(speakeasy.totp({ secret: setupSecret, encoding: 'base32' }));
+  await tfa.locator('button[type=submit]').click();
+  await tfa.locator('.act-2fa-off').waitFor({ timeout: 5000 }).catch(() => {});
+  const onStatus = await api(`token/2fa?email=${encodeURIComponent(ADMIN.email)}`);
+  check(5, '2FA setup with the right code turns it on and says so inline, no reload', onStatus.data?.enable === true && /is on/iu.test(await tfa.locator('.notice-success').textContent().catch(() => '')) && (await page.evaluate(() => performance.getEntriesByType('navigation').length)) === 1, await tfa.locator('.notice').textContent().catch(() => 'none'));
+  await tfa.locator('.act-2fa-off').click();
+  const offSheet = page.locator('.sheet-root.is-open');
+  await offSheet.locator('.act-2fa-off-confirm').waitFor({ timeout: 3000 }).catch(() => {});
+  check(5, 'disabling 2FA asks in an in-app sheet (no confirm dialog)', (await offSheet.locator('.act-2fa-off-confirm').count()) === 1 && !page.__dialogs.length);
+  await page.setViewportSize({ width: 390, height: 800 });
+  await page.screenshot({ path: `${OUT}/profile-2fa-off-sheet-390.png` });
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.keyboard.press('Escape');
+  await page.locator('.sheet-root').waitFor({ state: 'detached', timeout: 3000 }).catch(() => {});
+  check(5, 'Escape keeps 2FA on', (await api(`token/2fa?email=${encodeURIComponent(ADMIN.email)}`)).data?.enable === true);
+  await tfa.locator('.act-2fa-off').click();
+  await offSheet.locator('.act-2fa-off-confirm').click();
+  await page.locator('.sheet-root').waitFor({ state: 'detached', timeout: 3000 }).catch(() => {});
+  await sleep(300);
+  check(5, 'confirming in the sheet turns 2FA off and says so inline', (await api(`token/2fa?email=${encodeURIComponent(ADMIN.email)}`)).data?.enable === false && /is off/iu.test(await tfa.locator('.notice-success').textContent().catch(() => '')) && (await tfa.getByRole('button', { name: 'Next step' }).count()) === 1, await tfa.locator('.notice').textContent().catch(() => 'none'));
   await page.screenshot({ path: `${OUT}/profile-2fa.png`, fullPage: true });
   await ctx.close();
 }
@@ -702,17 +773,47 @@ const HOSTILE = [
   await download.saveAs(file);
   const data = JSON.parse(fs.readFileSync(file, 'utf8'));
   check(5, 'export downloads waline JSON', data.type === 'waline' && data.data.Comment.length > 0 && data.data.Users.length === 3, `${download.suggestedFilename()} comments=${data.data.Comment?.length}`);
-  const chooser = page.waitForEvent('filechooser');
+  const importSheet = page.locator('.sheet-root.is-open');
+  const importNotice = page.locator('.import-notice');
   await page.locator('button', { hasText: /^import$/iu }).click();
+  await importSheet.locator('.act-import-confirm').waitFor({ timeout: 3000 }).catch(() => {});
+  check(5, 'import asks in an in-app sheet first (no confirm dialog)', (await importSheet.locator('.act-import-confirm').count()) === 1 && /overwrit/iu.test(await importSheet.textContent()) && !page.__dialogs.length);
+  await page.setViewportSize({ width: 390, height: 800 });
+  await page.screenshot({ path: `${OUT}/migration-confirm-390.png` });
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await importSheet.getByRole('button', { name: 'Cancel' }).click();
+  await page.locator('.sheet-root').waitFor({ state: 'detached', timeout: 3000 }).catch(() => {});
+  const bogus = `${OUT}/not-waline.json`;
+  fs.writeFileSync(bogus, JSON.stringify({ type: 'other' }));
+  let chooser = page.waitForEvent('filechooser');
+  await page.locator('button', { hasText: /^import$/iu }).click();
+  await importSheet.locator('.act-import-confirm').click();
+  await (await chooser).setFiles(bogus);
+  await importNotice.waitFor({ timeout: 5000 }).catch(() => {});
+  await page.locator('.sheet-root').waitFor({ state: 'detached', timeout: 3000 }).catch(() => {});
+  check(5, 'importing a file that is not a Waline export fails inline, nothing deleted', /isn't a Waline export/iu.test(await importNotice.textContent().catch(() => '')) && (await importNotice.getAttribute('class')).includes('notice-error') && (await api('comment?type=list&status=approved&page=1&pageSize=100', { token: adminToken })).data.data.length === before.data.data.length, await importNotice.textContent().catch(() => 'none'));
+  await page.setViewportSize({ width: 390, height: 800 });
+  await page.screenshot({ path: `${OUT}/migration-error-390.png`, fullPage: true });
+  await page.setViewportSize({ width: 1280, height: 800 });
+  chooser = page.waitForEvent('filechooser');
+  await page.locator('button', { hasText: /^import$/iu }).click();
+  await importSheet.locator('.act-import-confirm').click();
   await (await chooser).setFiles(file);
   const t0 = Date.now();
-  while (!page.__dialogs.some((d) => /success|error|fail/iu.test(d)) && Date.now() - t0 < 30000) await sleep(200);
-  await sleep(1000);
+  while (!/success|fail/iu.test((await importNotice.textContent().catch(() => '')) ?? '') && Date.now() - t0 < 30000) await sleep(200);
+  await sleep(500);
   const after = await api('comment?type=list&status=approved&page=1&pageSize=100', { token: adminToken });
   const spam = await api('comment?type=list&status=spam&page=1&pageSize=100', { token: adminToken });
   const bText = before.data.data.map((c) => c.orig).sort().join('|');
   const aText = after.data.data.map((c) => c.orig).sort().join('|');
-  check(5, 'import round-trips comments', page.__dialogs.some((d) => /success/iu.test(d)) && bText === aText && after.data.data.length === before.data.data.length && spam.data.data.length === 7, `dialogs=${page.__dialogs.join(';')} before=${before.data.data.length} after=${after.data.data.length}`);
+  check(5, 'import round-trips comments', /success/iu.test(await importNotice.textContent().catch(() => '')) && bText === aText && after.data.data.length === before.data.data.length && spam.data.data.length === 7, `notice=${await importNotice.textContent().catch(() => '')} before=${before.data.data.length} after=${after.data.data.length}`);
+  check(5, 'import success is an inline notice, no dialog, no reload', (await importNotice.getAttribute('class')).includes('notice-success') && !page.__dialogs.length && (await page.evaluate(() => performance.getEntriesByType('navigation').length)) === 1);
+  await page.route('**/api/db?*', (route) => (route.request().method() === 'GET' ? route.fulfill({ status: 500, contentType: 'application/json', body: '{"errno":500,"errmsg":"boom"}' }) : route.continue()));
+  await page.route('**/api/db', (route) => route.fulfill({ status: 500, contentType: 'application/json', body: '{"errno":500,"errmsg":"boom"}' }));
+  await page.locator('button', { hasText: /^export$/iu }).first().click();
+  await sleep(500);
+  check(5, 'export failure is an inline notice, not an unhandled rejection', /export failed/iu.test(await page.locator('.migration .panel').first().locator('.notice').textContent().catch(() => '')) && !page.__console.some((e) => /Unhandled|pageerror/u.test(e)), `${await page.locator('.migration .notice').first().textContent().catch(() => 'none')} ${page.__console.join(' | ')}`);
+  await page.unrouteAll({ behavior: 'ignoreErrors' });
   const reply = after.data.data.find((c) => c.orig === 'Thanks from the admin');
   const parent = reply && after.data.data.find((c) => c.objectId === reply.pid);
   check(5, 'import rebuilt reply relationship', Boolean(parent), reply ? `pid=${reply.pid}` : 'reply missing');
@@ -819,7 +920,7 @@ check(6, 'no horizontal scroll at 320/360/390/414/768/1280 on every page, both t
     const ctx = await ctxFor();
     const page = await open(ctx, '/login');
     const attrs = await page.evaluate(() => ['email', 'password'].map((n) => document.querySelector(`input[name=${n}]`).getAttribute('autocomplete')));
-    check(10, 'login inputs are autofill-friendly', attrs[0] === 'username' && attrs[1] === 'current-password' && (await page.locator('input[name=email]').getAttribute('type')) === 'email', attrs.join(','));
+    check(10, 'login inputs are autofill-friendly', attrs[0].split(' ')[0] === 'username' && attrs[1] === 'current-password' && (await page.locator('input[name=email]').getAttribute('type')) === 'email', attrs.join(','));
     const posts = tokenPosts(page);
     await fillLogin(page, ADMIN.email, 'Wrong-pass-1');
     await page.click('form[name=login] button[type=submit]');
@@ -933,23 +1034,133 @@ check(6, 'no horizontal scroll at 320/360/390/414/768/1280 on every page, both t
     await sleep(300);
     const codeInput = page.locator('input[name=code]');
     const focused = await page.evaluate(() => document.activeElement?.name);
-    check(10, '2FA account: submit without a code asks for it and sends no login', (await codeInput.count()) === 1 && posts.length === 0 && /two-step verification/iu.test(await notice(page)) && focused === 'code', `posts=${posts.length} focus=${focused} ${await notice(page)}`);
-    check(10, '2FA code input is numeric one-time-code', (await codeInput.getAttribute('inputmode')) === 'numeric' && (await codeInput.getAttribute('autocomplete')) === 'one-time-code');
-    await page.click('form[name=login] button[type=submit]');
+    const codeAttrs = await codeInput.evaluate((el) => ({ mode: el.getAttribute('inputmode'), ac: el.getAttribute('autocomplete'), pattern: el.getAttribute('pattern'), max: el.maxLength }));
+    check(10, '2FA account: password step switches to a separate code screen, no login sent yet', (await codeInput.count()) === 1 && (await page.locator('form[name=login]').count()) === 0 && (await page.locator('input[name=password]').count()) === 0 && posts.length === 0, `posts=${posts.length}`);
+    check(10, 'code screen: heading and URL change, email shown', (await h1(page)) === 'Two-step verification' && (await loc(page)) === '/login?step=verify' && (await page.locator('.auth-account-email').textContent()) === ADMIN.email && /6-digit code/iu.test(await page.locator('.auth-lede').textContent()), `${await h1(page)} ${await loc(page)}`);
+    check(10, 'code screen: the code field has focus', focused === 'code', String(focused));
+    check(10, '2FA code input is numeric one-time-code, 6 digits', codeAttrs.mode === 'numeric' && codeAttrs.ac === 'one-time-code' && codeAttrs.pattern === '\\d{6}' && codeAttrs.max === 6, JSON.stringify(codeAttrs));
+    check(10, 'code screen keeps a hidden username for password managers', (await page.locator('form[name=verify] input[autocomplete=username]').inputValue()) === ADMIN.email);
+    await page.click('form[name=verify] button[type=submit]');
     await sleep(300);
     check(10, '2FA: empty code is refused without a request', posts.length === 0 && /verification code/iu.test(await notice(page)), await notice(page));
-    await codeInput.fill(WRONG);
-    await page.click('form[name=login] button[type=submit]');
-    await sleep(800);
-    check(10, '2FA: wrong code shows an error and stays logged out', posts.length === 1 && /verification code/iu.test(await notice(page)) && (await loc(page)) === '/login' && !(await stored(page)).session && (await codeInput.inputValue()) === '', `${posts.length} ${await notice(page)}`);
-    await page.fill('input[name=password]', PASSWORD);
-    const code = totp();
-    await codeInput.fill(`${code.slice(0, 3)} ${code.slice(3)}`);
+    await codeInput.fill('123');
     await codeInput.press('Enter');
+    await sleep(300);
+    check(10, '2FA: a short code is refused without a request', posts.length === 0 && /6 digits/iu.test(await notice(page)), await notice(page));
+    await codeInput.fill('');
+    await codeInput.pressSequentially(WRONG, { delay: 30 });
+    await page.locator('.notice').filter({ hasText: /didn't work/u }).waitFor({ timeout: 5000 }).catch(() => {});
+    await sleep(300);
+    check(10, '2FA: six digits submit on their own; a wrong code shows an inline error', posts.length === 1 && /verification code didn't work/iu.test(await notice(page)) && (await loc(page)) === '/login?step=verify' && !(await stored(page)).session, `${posts.length} ${await notice(page)}`);
+    check(10, '2FA: after a wrong code the field is cleared and focused again', (await codeInput.inputValue()) === '' && (await page.evaluate(() => document.activeElement?.name)) === 'code' && (await codeInput.getAttribute('aria-invalid')) === 'true');
+    await page.keyboard.press('Escape');
+    await page.locator('form[name=login]').waitFor({ timeout: 3000 }).catch(() => {});
+    await sleep(200);
+    check(10, 'Escape returns to the password step with the email kept and the password cleared', (await h1(page)) === 'Login' && (await loc(page)) === '/login' && (await page.inputValue('input[name=email]')) === ADMIN.email && (await page.inputValue('input[name=password]')) === '' && (await page.evaluate(() => document.activeElement?.name)) === 'password', `${await h1(page)} ${await loc(page)}`);
+    check(10, 'the error from the code screen does not follow back', (await page.locator('.notice').count()) === 0);
+    await page.fill('input[name=password]', PASSWORD);
+    await page.click('form[name=login] button[type=submit]');
+    await codeInput.waitFor({ timeout: 5000 }).catch(() => {});
+    await page.goBack();
+    await page.locator('form[name=login]').waitFor({ timeout: 3000 }).catch(() => {});
+    await sleep(200);
+    check(10, 'browser Back returns to the password step with the email kept and the password cleared', (await h1(page)) === 'Login' && (await loc(page)) === '/login' && (await page.inputValue('input[name=email]')) === ADMIN.email && (await page.inputValue('input[name=password]')) === '', `${await h1(page)} ${await loc(page)}`);
+    await page.goForward();
+    await sleep(400);
+    check(10, 'browser Forward to the code screen without a password in memory falls back to step 1', (await h1(page)) === 'Login' && (await loc(page)) === '/login', `${await h1(page)} ${await loc(page)}`);
+    await page.fill('input[name=password]', PASSWORD);
+    await page.click('form[name=login] button[type=submit]');
+    await codeInput.waitFor({ timeout: 5000 }).catch(() => {});
+    await page.locator('.act-other-account').click();
+    await page.locator('form[name=login]').waitFor({ timeout: 3000 }).catch(() => {});
+    await sleep(200);
+    check(10, '"Use a different account" returns to step 1 with the email field focused', (await h1(page)) === 'Login' && (await loc(page)) === '/login' && (await page.inputValue('input[name=email]')) === ADMIN.email && (await page.evaluate(() => document.activeElement?.name)) === 'email');
+    await page.fill('input[name=password]', PASSWORD);
+    await page.click('form[name=login] button[type=submit]');
+    await codeInput.waitFor({ timeout: 5000 }).catch(() => {});
+    await page.reload();
+    await settle(page);
+    check(10, 'reloading the code screen starts over at step 1 (the password is not stored)', (await h1(page)) === 'Login' && (await loc(page)) === '/login' && !(await page.evaluate(() => JSON.stringify({ ...sessionStorage, ...localStorage }))).includes(PASSWORD), `${await h1(page)} ${await loc(page)}`);
+    await fillLogin(page, ADMIN.email, PASSWORD);
+    await page.click('form[name=login] button[type=submit]');
+    await codeInput.waitFor({ timeout: 5000 }).catch(() => {});
+    const code = totp();
+    const sent = page.waitForRequest((r) => r.method() === 'POST' && new URL(r.url()).pathname === '/api/token', { timeout: 5000 }).catch(() => null);
+    await codeInput.evaluate((el, text) => {
+      const data = new DataTransfer();
+      data.setData('text/plain', text);
+      el.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }));
+    }, ` ${code.slice(0, 3)} ${code.slice(3)} `);
+    const body = (await sent)?.postDataJSON() ?? {};
     await page.waitForURL(`${BASE}/`, { timeout: 5000 }).catch(() => {});
     await settle(page);
-    check(10, '2FA: correct code (typed with a space) logs in', (await loc(page)) === '/' && (await h1(page)) === 'Comments' && posts.length === 2, `${await loc(page)} posts=${posts.length}`);
+    check(10, '2FA: pasting the code with spaces submits it and logs in', (await loc(page)) === '/' && (await h1(page)) === 'Comments' && posts.length === 2, `${await loc(page)} posts=${posts.length}`);
+    check(10, 'the sign-in request carries email, password and the stripped code', body.email === ADMIN.email && body.password === PASSWORD && body.code === code, JSON.stringify({ ...body, password: body.password ? '…' : body.password }));
+    check(10, 'the password is not kept in storage after login', !(await page.evaluate(() => JSON.stringify({ ...sessionStorage, ...localStorage }))).includes(PASSWORD));
     await ctx.close();
+  }
+
+  {
+    const ctx = await ctxFor();
+    const page = await open(ctx, '/');
+    await fillLogin(page, ADMIN.email, PASSWORD);
+    await page.check('input[name=remember]');
+    await page.click('form[name=login] button[type=submit]');
+    await page.locator('input[name=code]').waitFor({ timeout: 5000 }).catch(() => {});
+    check(10, 'from / the code screen is /?step=verify', (await loc(page)) === '/?step=verify' && (await h1(page)) === 'Two-step verification', await loc(page));
+    await page.route('**/api/token?*', async (route) => {
+      if (route.request().method() === 'POST') await sleep(1500);
+      await route.continue();
+    });
+    await page.locator('input[name=code]').fill(totp());
+    await sleep(300);
+    const verifyBtn = page.locator('form[name=verify] button[type=submit]');
+    check(10, 'code screen shows a loading state while verifying', (await verifyBtn.isDisabled()) && /verifying/iu.test(await verifyBtn.textContent()) && (await page.locator('input[name=code]').getAttribute('readonly')) !== null, await verifyBtn.textContent());
+    for (const [width, scheme] of [[390, 'light'], [390, 'dark']]) {
+      await page.setViewportSize({ width, height: 844 });
+      await page.emulateMedia({ colorScheme: scheme });
+      await page.screenshot({ path: `${OUT}/login-step2-loading-${width}-${scheme}.png` });
+    }
+    await page.waitForURL(`${BASE}/`, { timeout: 8000 }).catch(() => {});
+    await page.waitForFunction(() => document.querySelector('h1')?.textContent === 'Comments', null, { timeout: 5000 }).catch(() => {});
+    const saved = await stored(page);
+    check(10, 'from /: the code signs in, the step leaves the URL, remember me applies', (await loc(page)) === '/' && (await h1(page)) === 'Comments' && Boolean(saved.local) && saved.local === saved.session, `${await loc(page)} ${JSON.stringify(saved).slice(0, 40)}`);
+    await ctx.close();
+  }
+
+  {
+    const shotsDir = process.env.LOGIN_SHOTS;
+    if (shotsDir) {
+      fs.mkdirSync(shotsDir, { recursive: true });
+      const sizes = [['iphone13', 390, 844], ['w320', 320, 640], ['desktop', 1280, 800]];
+      for (const scheme of ['light', 'dark']) {
+        for (const [name, width, height] of sizes) {
+          const ctx = await browser.newContext({ viewport: { width, height }, colorScheme: scheme, hasTouch: width < 720, deviceScaleFactor: width < 720 ? 2 : 1 });
+          ctx.on('page', watchDialogs);
+          const page = await ctx.newPage();
+          await page.goto(`${BASE}/login`);
+          await settle(page);
+          await page.screenshot({ path: `${shotsDir}/step1-${name}-${scheme}.png` });
+          await fillLogin(page, ADMIN.email, PASSWORD);
+          await page.click('form[name=login] button[type=submit]');
+          await page.locator('input[name=code]').waitFor({ timeout: 5000 }).catch(() => {});
+          await sleep(200);
+          await page.screenshot({ path: `${shotsDir}/step2-empty-${name}-${scheme}.png` });
+          await page.locator('input[name=code]').fill(WRONG);
+          await page.locator('.notice').waitFor({ timeout: 5000 }).catch(() => {});
+          await sleep(200);
+          await page.screenshot({ path: `${shotsDir}/step2-error-${name}-${scheme}.png` });
+          await page.route('**/api/token?*', async (route) => {
+            if (route.request().method() === 'POST') await sleep(2500);
+            await route.continue().catch(() => {});
+          });
+          await page.locator('input[name=code]').fill(WRONG);
+          await sleep(300);
+          await page.screenshot({ path: `${shotsDir}/step2-loading-${name}-${scheme}.png` });
+          await ctx.close();
+        }
+      }
+    }
   }
 
   {
@@ -961,13 +1172,11 @@ check(6, 'no horizontal scroll at 320/360/390/414/768/1280 on every page, both t
       addEventListener('message', (e) => window.__messages.push({ origin: e.origin, data: e.data }));
     });
     const [popup] = await Promise.all([ctx.waitForEvent('page'), blog.evaluate((url) => window.open(url, 'login'), `${BASE}/login`)]);
-    popup.on('dialog', (d) => d.accept());
     await settle(popup);
     await fillLogin(popup, ADMIN.email, PASSWORD);
-    await popup.locator('input[name=email]').blur();
-    await popup.locator('input[name=code]').waitFor({ timeout: 5000 }).catch(() => {});
-    await popup.fill('input[name=code]', totp());
     await popup.click('form[name=login] button[type=submit]');
+    await popup.locator('input[name=code]').waitFor({ timeout: 5000 }).catch(() => {});
+    await popup.locator('input[name=code]').pressSequentially(totp(), { delay: 20 });
     await sleep(1200);
     const messages = await blog.evaluate(() => window.__messages);
     const info = messages.find((m) => m.data?.type === 'userInfo');
@@ -1020,9 +1229,34 @@ check(6, 'no horizontal scroll at 320/360/390/414/768/1280 on every page, both t
   await setPasskeys('');
   {
     const ctx = await ctxFor();
+    await noAutofill(ctx);
     const page = await open(ctx, '/login');
-    check(11, 'no PASSKEYS: login page has no passkey button and plain username autofill', (await page.locator('.btn-passkey').count()) === 0 && (await page.locator('input[name=email]').getAttribute('autocomplete')) === 'username' && (await page.evaluate(() => window.PASSKEY_ENABLED)) === false);
+    check(11, 'no PASSKEYS: the passkey button still shows wherever WebAuthn works, email joins passkey autofill', (await page.locator('.btn-passkey').count()) === 1 && (await page.locator('input[name=email]').getAttribute('autocomplete')) === 'username webauthn' && (await page.evaluate(() => window.PASSKEY_ENABLED)) === false);
+    await page.locator('.btn-passkey').click();
+    await page.locator('.notice').waitFor({ timeout: 5000 }).catch(() => {});
+    check(11, 'no PASSKEYS: pressing it says passkeys are not set up, inline', /aren't set up on this server/iu.test(await notice(page)) && (await loc(page)) === '/login' && !(await page.locator('.btn-passkey').isDisabled()), await notice(page));
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.screenshot({ path: shots('login-not-configured-390-light') });
     await ctx.close();
+  }
+  {
+    const ctx = await ctxFor();
+    await ctx.addInitScript(() => {
+      delete window.PublicKeyCredential;
+    });
+    const page = await open(ctx, '/login');
+    check(11, 'without WebAuthn there is no passkey button and plain username autofill', (await page.locator('.btn-passkey').count()) === 0 && (await page.locator('input[name=email]').getAttribute('autocomplete')) === 'username' && (await page.locator('form[name=login] button[type=submit]').getAttribute('class')).includes('btn-primary'));
+    await ctx.close();
+  }
+  {
+    const iphone = await browser.newContext({ viewport: { width: 390, height: 844 }, userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1', hasTouch: true, isMobile: true, deviceScaleFactor: 3 });
+    iphone.on('page', watchDialogs);
+    await noAutofill(iphone);
+    const page = await iphone.newPage();
+    await page.goto(`${BASE}/login`);
+    await settle(page);
+    check(11, 'passkey button renders with an iPhone Safari user agent and viewport', (await page.locator('.btn-passkey').isVisible()) && (await page.locator('.btn-passkey').boundingBox()).height >= 44);
+    await iphone.close();
   }
 
   const unauth = await fetch(`${BASE}/api/passkey`);
@@ -1094,7 +1328,7 @@ check(6, 'no horizontal scroll at 320/360/390/414/768/1280 on every page, both t
     const ctx = await ctxFor();
     const page = await open(ctx, '/login');
     const button = page.locator('.btn-passkey');
-    check(11, 'with PASSKEYS the login page offers a passkey button above the form', (await button.count()) === 1 && (await page.evaluate(() => window.PASSKEY_ENABLED)) === true && (await page.evaluate(() => document.querySelector('.btn-passkey').compareDocumentPosition(document.querySelector('form[name=login]')) & Node.DOCUMENT_POSITION_FOLLOWING)) > 0 && (await button.textContent()).includes('Sign in with a passkey'));
+    check(11, 'with PASSKEYS the login page offers a passkey button above the form', (await button.count()) === 1 && (await page.evaluate(() => document.querySelector('.btn-passkey').compareDocumentPosition(document.querySelector('form[name=login]')) & Node.DOCUMENT_POSITION_FOLLOWING)) > 0 && (await button.textContent()).includes('Sign in with a passkey'));
     check(11, 'the email field joins passkey autofill', (await page.locator('input[name=email]').getAttribute('autocomplete')) === 'username webauthn');
     await ctx.close();
   }
@@ -1208,10 +1442,9 @@ check(6, 'no horizontal scroll at 320/360/390/414/768/1280 on every page, both t
     check(11, 'a refused or cancelled prompt shows a message and sends no sign-in', /cancelled|timed out/iu.test(await notice(page)) && !posts.includes('/api/passkey/login') && (await loc(page)) === '/login', `${await notice(page)} ${posts.join(',')}`);
     await page.fill('input[name=email]', ADMIN.email);
     await page.fill('input[name=password]', PASSWORD);
-    await page.locator('input[name=email]').blur();
+    await page.click('form[name=login] button[type=submit]');
     await page.locator('input[name=code]').waitFor({ timeout: 5000 }).catch(() => {});
     await page.fill('input[name=code]', totp());
-    await page.click('form[name=login] button[type=submit]');
     await page.waitForURL(`${BASE}/`, { timeout: 5000 }).catch(() => {});
     await settle(page);
     check(11, 'the password + 2FA form still works next to the passkey button', (await loc(page)) === '/' && (await h1(page)) === 'Comments', await loc(page));
@@ -1248,11 +1481,12 @@ check(6, 'no horizontal scroll at 320/360/390/414/768/1280 on every page, both t
   {
     const ctx = await ctxFor();
     const page = await open(ctx, '/login');
-    check(11, 'removing PASSKEYS hides the passkey button again', (await page.locator('.btn-passkey').count()) === 0);
+    check(11, 'removing PASSKEYS keeps the button (it no longer depends on PASSKEY_ENABLED)', (await page.locator('.btn-passkey').count()) === 1 && (await page.evaluate(() => window.PASSKEY_ENABLED)) === false);
     await ctx.close();
   }
 }
 
+check(12, 'no native alert/confirm/prompt dialog fired anywhere in the run', dialogs.length === 0, dialogs.slice(0, 5).join(' | '));
 check(8, 'no CSP violations across the whole run', cspViolations.length === 0, [...new Set(cspViolations)].slice(0, 5).join(' | '));
 await browser.close();
 fs.writeFileSync(`${OUT}/e2e-results.json`, JSON.stringify(results, null, 2));

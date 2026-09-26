@@ -16,8 +16,6 @@ export const passkeySupported = () => {
   }
 };
 
-export const passkeyEnabled = () => window.PASSKEY_ENABLED === true && passkeySupported();
-
 export const passkeyAutofill = () => browserSupportsWebAuthnAutofill().catch(() => false);
 
 export const isAborted = (err) => err?.code === 'ERROR_CEREMONY_ABORTED' || err?.name === 'AbortError';

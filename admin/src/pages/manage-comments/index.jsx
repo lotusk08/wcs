@@ -316,7 +316,7 @@ export default function ManageComments() {
 
   return (
     <Layout title={t('manage comments')} className={cls('manage', { 'is-selecting': selecting })}>
-      <Notice onClose={() => setNotice('')}>{notice}</Notice>
+      <Notice floating onClose={() => setNotice('')}>{notice}</Notice>
 
       {byPost ? null : (
         <div className="subbar">

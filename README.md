@@ -13,6 +13,19 @@ with `login: 'disable'`). The admin offers a passkey, or email and password
 with two-step verification, and nothing else: social login and public sign-up
 are switched off in the wrapper as well as in the admin.
 
+Password sign-in takes two screens. The first asks for the email and password
+(autofill-friendly: `username`/`current-password`). Only after it is submitted
+does the admin ask `GET /api/token/2fa?email=` whether the account uses
+two-step verification; if it does, it moves to `?step=verify`, a separate
+screen for the 6-digit code (`one-time-code`, sent as soon as six digits are
+typed or pasted). Waline checks the password and the code in the same
+`POST /api/token` and answers a wrong one of either identically, so the
+password is held in memory until that request and never stored; Back, Escape
+or a reload return to the first screen. The **Sign in with a passkey** button
+shows wherever the browser supports WebAuthn and says so inline when the
+server has no passkey. Errors and confirmations are inline notices and in-app
+sheets: the admin never opens a browser `alert`, `confirm` or `prompt`.
+
 ## Routes
 
 | Path | Method | Served by |

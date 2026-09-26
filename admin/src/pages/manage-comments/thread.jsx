@@ -405,7 +405,7 @@ export default function Thread() {
   return (
     <Layout className="thread-page">
       <div ref={pageRef} className="thread-wrap">
-        <Notice onClose={() => setNotice('')}>{notice}</Notice>
+        <Notice floating onClose={() => setNotice('')}>{notice}</Notice>
 
         <header className="thread-head">
           <button type="button" className="icon-btn thread-back" aria-label={t('back')} onClick={back}>

@@ -13,6 +13,7 @@ export default function Forgot() {
   const { search } = useLocation();
   const user = useSelector((state) => state.user);
   const [error, setError] = useState(false);
+  const [sent, setSent] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
@@ -23,9 +24,11 @@ export default function Forgot() {
 
   const onSubmit = async (event) => {
     event.preventDefault();
-    setError(false);
 
     if (submitting) return;
+
+    setError(false);
+    setSent('');
 
     const email = event.currentTarget.email.value.trim();
 
@@ -40,8 +43,7 @@ export default function Forgot() {
     try {
       setSubmitting(true);
       await dispatch.user.forgot({ email });
-      alert(t('find password success! please go to your mailbox to reset it!'));
-      navigate(`/login${search}`);
+      setSent(email);
     } catch (err) {
       setError(err?.errno === 'network' ? t('network error') : t('find password error! try again later'));
     } finally {
@@ -51,9 +53,13 @@ export default function Forgot() {
 
   return (
     <Layout narrow>
-      <Notice onClose={() => setError(false)}>{error}</Notice>
       <section className="auth">
         <h1 className="page-title">{t('forgot password')}</h1>
+        <p className="auth-lede">{t('you will receive an email which contains a link to create new password')}</p>
+        <Notice onClose={() => setError(false)}>{error}</Notice>
+        <Notice tone="success" onClose={() => setSent('')}>
+          {sent ? t('find password success! please go to your mailbox to reset it!') : null}
+        </Notice>
         <form method="post" name="forgot" className="form" onSubmit={onSubmit} noValidate>
           <label className="field">
             <span className="field-label">{t('email')}</span>
@@ -67,9 +73,6 @@ export default function Forgot() {
               required
               className="input"
             />
-            <span className="field-hint">
-              {t('you will receive an email which contains a link to create new password')}
-            </span>
           </label>
           <button type="submit" disabled={submitting} className="btn btn-primary btn-block">
             {submitting ? t('loading') : t('get new password')}
