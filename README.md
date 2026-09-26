@@ -13,6 +13,7 @@ instead of upstream's demo page at `/` and the unpkg-hosted admin at `/ui`.
 | Path | Method | Served by |
 | --- | --- | --- |
 | `/`, `/login`, `/register`, `/forgot`, `/profile`, `/user`, `/migration` (trailing slash and any query allowed) | GET, HEAD | Admin HTML shell (`lib/ui.cjs`). This shadows Waline's deprecated un-prefixed `GET /user` API; `/api/user` is unaffected |
+| `/widget.css`, `/widget.json` | GET, HEAD | The comment widget's stylesheet (`lib/widget.cjs`), below |
 | `/admin.js` | GET, HEAD | `admin/dist/admin.js`; immutable when `?v=` matches its hash, 5 minutes otherwise, ETag/304; 503 if it is not built |
 | `/ui`, `/ui/*` | GET, HEAD | 301 to the same path without `/ui`, query kept, repeated slashes collapsed so `/ui//evil.com` stays on this host. Keeps Waline's own emails and redirects (`/ui/login`, `/ui/profile?token=…`) working |
 | any path containing a `..` segment | any | 404 |
@@ -20,7 +21,7 @@ instead of upstream's demo page at `/` and the unpkg-hosted admin at `/ui`.
 | `/robots.txt` | any | static file |
 | everything else (`/api/*`, POST to any path, …) | any | Waline, untouched |
 
-`index.cjs` is the Vercel function: it asks `lib/ui.cjs` first and hands the
+`index.cjs` is the Vercel function: it asks `lib/widget.cjs`, then `lib/ui.cjs` and hands the
 request to Waline when the router declines it.
 
 The shell sets `window.SITE_URL`, `SITE_NAME`, `recaptchaV3Key`,
@@ -67,6 +68,29 @@ git add admin/dist
 The shell's `?v=` hash changes with the file's contents, so a new bundle is
 picked up on the next deploy without cache trouble.
 
+## Widget stylesheet
+
+The blog's comment widget takes its look from this server, so it is changed in
+one place. `/widget.css` is `widget/waline.css` (the `@waline/client` base
+stylesheet, vendored) followed by `widget/theme.css` (the site theme, scoped
+under `#waline` and written against the blog's CSS variables such as
+`--primary-color`, `--main-border-color` and `--font-serif`, with fallbacks).
+The two are joined once per instance and hashed: `?v=<hash>` is immutable,
+anything else is cached for 5 minutes; both carry an ETag and answer 304.
+`/widget.json` returns `{"css": "/widget.css?v=<hash>"}` (cached 1 minute).
+Both send `access-control-allow-origin: *`, `cross-origin-resource-policy:
+cross-origin` and `nosniff`, and answer 503 if a file is missing.
+
+The blog links the plain `/widget.css` once the comments come near and waits
+for it before drawing the widget. Edit `widget/theme.css` and deploy; it is
+live on the blog within the 5-minute cache. When the blog moves to a new
+`@waline/client`, refresh the base sheet with the same version:
+
+```sh
+npm run build:widget -- 3.15.2
+git add widget/waline.css
+```
+
 ## Tests
 
 ```sh
@@ -74,7 +98,7 @@ npm install
 npm test
 ```
 
-`test/ui.test.cjs` runs the router against a stub Waline handler and a
+`test/widget.test.cjs` covers the stylesheet routes. `test/ui.test.cjs` runs the router against a stub Waline handler and a
 temporary bundle, so it needs neither the database nor a built admin.
 
 `test/e2e/admin.e2e.mjs` drives the built admin in Chromium against a fresh

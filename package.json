@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "build:admin": "(npm --prefix admin ci || npm --prefix admin install) && npm --prefix admin run build",
+    "build:widget": "node scripts/build-widget.cjs",
     "start:local": "node test/serve-local.cjs",
     "test": "node --test test/*.test.cjs",
     "test:e2e": "node test/e2e/admin.e2e.mjs"
