@@ -3,16 +3,28 @@ import { useTranslation } from 'react-i18next';
 import { useDispatch, useSelector } from 'react-redux';
 import { Link, useLocation, useNavigate } from 'react-router';
 
+import Icon from '../../components/icon/ui.jsx';
 import Layout from '../../components/Layout.jsx';
 import Notice from '../../components/Notice.jsx';
 import { useCaptcha } from '../../components/useCaptcha.js';
+import { passkeyLoginOptions } from '../../services/passkey.js';
 import { get2FAStatus } from '../../services/user.js';
 import { takeSessionExpired } from '../../store/user.js';
+import {
+  WebAuthnAbortService,
+  ceremony,
+  describePasskey,
+  isAborted,
+  passkeyAutofill,
+  passkeyEnabled,
+  startAuthentication,
+} from '../../utils/passkey.js';
 import { SITE_NAME, safePath } from '../../utils/site.js';
 import { externalReturn } from '../../utils/site-redirect.js';
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/u;
 const CODE = /^\d{6}$/u;
+const AUTOFILL_REFRESH = 4 * 60 * 1000;
 
 export default function Login() {
   const { t } = useTranslation();
@@ -26,6 +38,10 @@ export default function Login() {
   const busy = useRef(false);
   const lookups = useRef(new Map());
   const codeInput = useRef(null);
+  const formRef = useRef(null);
+  const autofill = useRef(null);
+  const [passkeyBusy, setPasskeyBusy] = useState(false);
+  const passkeyOn = useMemo(() => passkeyEnabled(), []);
   const execute = useCaptcha({
     sitekey: window.turnstileKey ?? window.recaptchaV3Key,
     hideDefaultBadge: true,
@@ -62,6 +78,119 @@ export default function Login() {
   useEffect(() => {
     if (needsCode) codeInput.current?.focus();
   }, [needsCode]);
+
+  const finishPasskey = async (response, challengeToken) => {
+    busy.current = true;
+    setPasskeyBusy(true);
+    setError(false);
+
+    try {
+      await dispatch.user.passkeyLogin({
+        response,
+        challengeToken,
+        remember: Boolean(formRef.current?.remember?.checked),
+      });
+
+      return true;
+    } catch (err) {
+      setError(describePasskey(t, err));
+
+      return false;
+    } finally {
+      busy.current = false;
+      setPasskeyBusy(false);
+    }
+  };
+
+  const finishRef = useRef(finishPasskey);
+
+  finishRef.current = finishPasskey;
+
+  useEffect(() => {
+    if (!passkeyOn) return undefined;
+
+    let alive = true;
+    let timer = null;
+    let generation = 0;
+
+    const run = async () => {
+      generation += 1;
+
+      const id = generation;
+      const current = () => alive && id === generation;
+
+      clearTimeout(timer);
+      if (!(await passkeyAutofill()) || !current()) return;
+
+      let data;
+
+      try {
+        data = await passkeyLoginOptions();
+      } catch {
+        return;
+      }
+
+      if (!current()) return;
+      timer = setTimeout(run, AUTOFILL_REFRESH);
+
+      let response;
+
+      try {
+        response = await startAuthentication({ optionsJSON: data.options, useBrowserAutofill: true });
+      } catch {
+        if (current()) clearTimeout(timer);
+        return;
+      }
+
+      clearTimeout(timer);
+      if (!alive || busy.current) return;
+      if (!(await finishRef.current(response, data.challengeToken)) && alive) run();
+    };
+
+    autofill.current = {
+      run,
+      stop() {
+        generation += 1;
+        clearTimeout(timer);
+      },
+    };
+    run();
+
+    return () => {
+      alive = false;
+      autofill.current = null;
+      clearTimeout(timer);
+      WebAuthnAbortService.cancelCeremony();
+    };
+  }, [passkeyOn]);
+
+  const onPasskey = async () => {
+    if (busy.current) return;
+
+    busy.current = true;
+    autofill.current?.stop();
+    setPasskeyBusy(true);
+    setError(false);
+
+    let response;
+    let challengeToken;
+
+    try {
+      const data = await passkeyLoginOptions();
+
+      challengeToken = data.challengeToken;
+      response = await ceremony(() => startAuthentication({ optionsJSON: data.options }), data.options.timeout);
+    } catch (err) {
+      if (!isAborted(err)) setError(describePasskey(t, err));
+      busy.current = false;
+      setPasskeyBusy(false);
+      autofill.current?.run();
+
+      return;
+    }
+
+    if (!(await finishPasskey(response, challengeToken))) autofill.current?.run();
+  };
 
   const lookup2FA = (email) => {
     const key = email.toLowerCase();
@@ -208,13 +337,39 @@ export default function Login() {
           {SITE_NAME} · {t('comments')}
         </p>
 
-        <form method="post" name="login" className="form" onSubmit={onSubmit} aria-busy={loading} noValidate>
+        {passkeyOn ? (
+          <div className="passkey-login">
+            <button
+              type="button"
+              className="btn btn-primary btn-block btn-passkey"
+              onClick={onPasskey}
+              disabled={loading || passkeyBusy}
+              aria-busy={passkeyBusy}
+            >
+              <Icon name="passkey" size={20} />
+              <span>{passkeyBusy ? t('loading') : t('sign in with passkey')}</span>
+            </button>
+            <p className="auth-divider">
+              <span>{t('or use password')}</span>
+            </p>
+          </div>
+        ) : null}
+
+        <form
+          ref={formRef}
+          method="post"
+          name="login"
+          className="form"
+          onSubmit={onSubmit}
+          aria-busy={loading}
+          noValidate
+        >
           <label className="field">
             <span className="field-label">{t('email')}</span>
             <input
               type="email"
               name="email"
-              autoComplete="username"
+              autoComplete={passkeyOn ? 'username webauthn' : 'username'}
               inputMode="email"
               autoCapitalize="none"
               autoCorrect="off"
@@ -253,7 +408,11 @@ export default function Login() {
             </label>
             <Link to={`/forgot${keepQuery}`}>{t('forgot password')}</Link>
           </div>
-          <button type="submit" className="btn btn-primary btn-block" disabled={loading}>
+          <button
+            type="submit"
+            className={passkeyOn ? 'btn btn-block' : 'btn btn-primary btn-block'}
+            disabled={loading || passkeyBusy}
+          >
             {loading ? t('loading') : t('login')}
           </button>
         </form>

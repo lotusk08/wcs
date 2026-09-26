@@ -1,4 +1,5 @@
 import { forgot, getUserInfo, login, logout, saveToken } from '../services/auth.js';
+import { passkeyLogin } from '../services/passkey.js';
 import { updateProfile } from '../services/user.js';
 import { getToken, postToOpener, publicUser, storage } from '../utils/site.js';
 
@@ -10,6 +11,18 @@ export const takeSessionExpired = () => {
   sessionExpired = false;
 
   return expired;
+};
+
+const signIn = (dispatch, { token, ...user }, remember) => {
+  if (!token || !user.objectId) {
+    throw new Error('login failed');
+  }
+
+  saveToken(token, remember);
+  sessionExpired = false;
+  postToOpener({ type: 'userInfo', data: { ...publicUser(user), token, remember } });
+
+  return dispatch.user.setUser(user);
 };
 
 export const user = {
@@ -53,17 +66,14 @@ export const user = {
       return dispatch.user.setUser(user);
     },
     async login({ email, password, code, remember, recaptchaV3, turnstile }) {
-      const { token, ...user } = await login({ email, password, code, recaptchaV3, turnstile });
+      const data = await login({ email, password, code, recaptchaV3, turnstile });
 
-      if (!token || !user.objectId) {
-        throw new Error('login failed');
-      }
+      return signIn(dispatch, data, remember);
+    },
+    async passkeyLogin({ response, challengeToken, remember }) {
+      const data = await passkeyLogin({ response, challengeToken });
 
-      saveToken(token, remember);
-      sessionExpired = false;
-      postToOpener({ type: 'userInfo', data: { ...publicUser(user), token, remember } });
-
-      return dispatch.user.setUser(user);
+      return signIn(dispatch, data, remember);
     },
     logout() {
       logout();

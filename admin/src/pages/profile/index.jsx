@@ -5,6 +5,7 @@ import { useDispatch, useSelector } from 'react-redux';
 import Avatar from '../../components/Avatar.jsx';
 import Layout from '../../components/Layout.jsx';
 import { updateProfile } from '../../services/user.js';
+import Passkeys from './passkeys.jsx';
 import TwoFactorAuth from './twoFactorAuth.jsx';
 
 export default function Profile() {
@@ -159,6 +160,8 @@ export default function Profile() {
               </div>
             </form>
           </section>
+
+          {user.type === 'administrator' ? <Passkeys /> : null}
 
           <TwoFactorAuth />
         </div>

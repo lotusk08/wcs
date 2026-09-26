@@ -151,6 +151,13 @@ const PATHS = {
       <path d="m3.5 6.5 8.5 6.5 8.5-6.5" />
     </>
   ),
+  passkey: (
+    <>
+      <circle cx="8" cy="15.5" r="4.5" />
+      <circle cx="8" cy="15.5" r="1.2" />
+      <path d="M11.3 12.2 20.5 3M16.8 6.7l2.6 2.6M14.4 9.1l2 2" />
+    </>
+  ),
 };
 
 export default function Icon({ name, size = 20, className }) {

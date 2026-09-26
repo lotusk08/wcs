@@ -776,6 +776,34 @@ input[type='checkbox'] {
   padding: 0 12px;
 }
 
+.passkey-login {
+  display: grid;
+  gap: 14px;
+  margin-bottom: 14px;
+}
+
+.btn-passkey {
+  min-height: 46px;
+  font-size: 1rem;
+}
+
+.auth-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0;
+  color: var(--text-muted-color);
+  font-size: 0.85rem;
+}
+
+.auth-divider::before,
+.auth-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--main-border-color);
+}
+
 .empty-page {
   text-align: center;
   padding-top: 48px;
@@ -2309,6 +2337,85 @@ textarea.composer-input:disabled {
   display: block;
   width: 100%;
   height: auto;
+}
+
+.passkey-list {
+  display: grid;
+  gap: 8px;
+  margin: 0 0 14px;
+  padding: 0;
+  list-style: none;
+}
+
+.passkey-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--main-border-color);
+  border-radius: var(--radius);
+}
+
+.passkey-item .icon {
+  flex-shrink: 0;
+  color: var(--primary-color);
+}
+
+.passkey-item-text {
+  display: grid;
+  min-width: 0;
+}
+
+.passkey-item-name {
+  color: var(--heading-color);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.passkey-item-meta {
+  font-size: 0.8rem;
+  color: var(--text-muted-color);
+}
+
+.passkey-result {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  margin-bottom: 14px;
+  padding: 14px;
+  border: 1px solid var(--primary-color);
+  border-radius: var(--radius);
+  background: var(--primary-tint);
+}
+
+.panel .passkey-result-title {
+  margin: 0;
+  color: var(--heading-color);
+  font-weight: 600;
+}
+
+.passkey-steps {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding-left: 20px;
+}
+
+textarea.input.passkey-value {
+  min-height: 120px;
+  background: var(--panel-bg);
+  font-size: 0.8rem;
+  word-break: break-all;
+}
+
+.panel .passkey-error {
+  margin: 12px 0 0;
+  color: var(--danger);
+}
+
+.panel .passkey-hint {
+  margin: 14px 0 0;
 }
 
 .step2-apps {

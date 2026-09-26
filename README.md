@@ -9,9 +9,9 @@ small wrapper that serves our own fork of the Waline admin at the site root,
 instead of upstream's demo page at `/` and the unpkg-hosted admin at `/ui`.
 
 Only the owner signs in: readers comment anonymously (the blog's widget runs
-with `login: 'disable'`). The admin offers email and password, with two-step
-verification, and nothing else: social login and public sign-up are switched
-off in the wrapper as well as in the admin.
+with `login: 'disable'`). The admin offers a passkey, or email and password
+with two-step verification, and nothing else: social login and public sign-up
+are switched off in the wrapper as well as in the admin.
 
 ## Routes
 
@@ -24,15 +24,19 @@ off in the wrapper as well as in the admin.
 | any path containing a `..` segment | any | 404 |
 | any path Waline would route to its `oauth` controller (`/api/oauth`, `/oauth`, `/api/oauth/github`, `.html` forms, doubled slashes, any case) | any | 404. Social login is off, whatever the `type` or `redirect` |
 | any path Waline would route to its `user` controller (`/api/user`, `/user`, `/api/user/<id>`, …) | POST | 403 `{"errno":403,"errmsg":"Registration is closed."}` unless `ALLOW_REGISTER=true`. POST is Waline's sign-up; `PUT` (profile, role, label), `DELETE` (ban) and `GET` pass, as does `/api/user/password` (forgot password) |
+| `/api/passkey` | GET | Passkeys configured in `PASSKEYS`, without their keys (`lib/passkey.cjs`). Administrator token required |
+| `/api/passkey/register/options`, `/api/passkey/register` | POST | Passkey registration. Administrator token required. See [Passkeys](#passkeys) |
+| `/api/passkey/login/options`, `/api/passkey/login` | POST | Passkey sign-in. Public, rate limited per IP |
 | `/robots.txt` | any | static file |
 | everything else (`/api/*`, POST to any path, …) | any | Waline, untouched |
 
-`index.cjs` is the Vercel function: it asks `lib/ui.cjs` first and hands the
-request to Waline when the router declines it.
+`index.cjs` is the Vercel function: it asks `lib/ui.cjs` first, then
+`lib/passkey.cjs`, and hands the request to Waline when both decline it.
 
 The shell sets `window.SITE_URL`, `SITE_NAME`, `recaptchaV3Key`,
-`turnstileKey`, `oauthServices` (always `[]`), `ALLOWED_ORIGINS` and `serverURL`
-(`SERVER_URL` when set, otherwise built from
+`turnstileKey`, `oauthServices` (always `[]`), `ALLOWED_ORIGINS`,
+`PASSKEY_ENABLED` (true when `PASSKEYS` holds at least one valid entry) and
+`serverURL` (`SERVER_URL` when set, otherwise built from
 `x-forwarded-proto`/`x-forwarded-host`/`host`; then `/api/`), and loads
 `/admin.js?v=<hash>` as a module. It is sent with a Content-Security-Policy:
 the inline globals carry a per-request nonce, scripts otherwise come from this
@@ -44,6 +48,63 @@ Waline asks `OAUTH_URL` for its list of social login services on every API
 request. `index.cjs` sets `OAUTH_URL` to an empty `data:` URL before Waline
 loads, so that call never leaves the function and no request depends on the
 third-party service; the shell does not fetch the list at all.
+
+## Passkeys
+
+The owner can sign in with a passkey (Face ID, Touch ID, Windows Hello, a phone
+or a security key) instead of email, password and code. The passkey is
+discoverable and user-verified, so signing in is one tap with nothing typed:
+the login page shows **Sign in with a passkey** above the email form, and the
+email field also offers the passkey in the browser's autofill. A passkey
+sign-in does **not** ask for the two-step verification code: a passkey with
+user verification is already two factors (the device, and the fingerprint,
+face or PIN that unlocks it). Password sign-in is unchanged and still asks for
+the code.
+
+Passkeys are kept in the `PASSKEYS` environment variable, not in the database,
+so there are no new tables. The function cannot write its own environment, so
+adding one takes a redeploy:
+
+1. Sign in at <https://line.stevehoang.com/> with email, password and code.
+2. Open **Profile** (Settings). Under **Passkeys**, optionally name it (e.g.
+   "iPhone"), press **Add passkey** and approve the prompt on the device.
+3. The page shows the new value of `PASSKEYS` (every configured passkey plus
+   the new one). Press **Copy**.
+4. In Vercel: the project → **Settings → Environment Variables** → set
+   `PASSKEYS` (Production) to the copied value, replacing the old one.
+5. Redeploy (Deployments → the latest → Redeploy). Once it is live, the login
+   page shows the passkey button and the Profile page lists the passkey.
+
+To remove a passkey, delete its entry from `PASSKEYS` in Vercel and redeploy;
+to remove them all, delete the variable. Each entry is
+`{"id", "publicKey", "userId", "name", "transports", "createdAt"}`: the
+credential id and public key (base64url, not secret), and the Waline user it
+signs in as. An entry that is not valid is skipped; a value that is not a JSON
+array turns passkeys off rather than breaking the server.
+
+How it works (`lib/passkey.cjs`, [`@simplewebauthn/server`](https://simplewebauthn.dev)):
+
+- The relying party is the host the request came in on
+  (`x-forwarded-host`/`host`), so `line.stevehoang.com` in production and
+  `localhost` locally; `PASSKEY_RP_ID` and `PASSKEY_ORIGIN` override it. A
+  passkey is bound to that host: one made on `line.stevehoang.com` does not
+  work on a `*.vercel.app` preview, and changing the domain means adding the
+  passkeys again.
+- Challenges are stateless. The options come with a challenge token, HMAC
+  signed with a key derived from Waline's `jwtKey`, naming its purpose
+  (register or sign in, and for registration the administrator) and expiring
+  after 5 minutes; the verify call sends it back. Each instance also remembers
+  the challenges it has accepted, so a token is not taken twice.
+- Registration needs an administrator's Waline token. Sign-in looks the
+  credential up by id, checks origin, relying party, user verification and
+  signature (signature counters are not enforced, since synced passkeys
+  report 0), and loads the user, who must exist, not be banned and be the
+  administrator. The answer is exactly what `POST /api/token` returns,
+  including a normal Waline token (`jwt.sign(objectId, jwtKey)`), so every
+  admin API accepts it, "Remember me" applies and the blog's login popup gets
+  the same message.
+- The two public calls are rate limited per IP in memory: 30 option requests
+  and 10 sign-in attempts a minute.
 
 ## Conversations
 
@@ -70,6 +131,9 @@ The shell also reads:
 | `ALLOWED_ORIGINS` | unset | Comma-separated `https://host` origins trusted like `SITE_URL` (token hand-off, post-login return) |
 | `ALLOW_REGISTER` | unset | `true` reopens Waline's sign-up (`POST /api/user`) for an emergency, such as recreating the owner's account on an empty database: set it, redeploy, `POST /api/user` with `display_name`, `email`, `password`, then remove it and redeploy. The first account created on an empty database becomes the administrator. There is no sign-up page; use curl |
 | `RECAPTCHA_V3_KEY`, `TURNSTILE_KEY` | unset | Site keys for the login form |
+| `PASSKEYS` | unset | JSON array of the owner's passkeys, pasted from Profile → Passkeys. See [Passkeys](#passkeys). Unset, empty or not valid JSON: no passkey sign-in |
+| `PASSKEY_RP_ID` | request host | The WebAuthn relying party id (a domain, no scheme or port). Set `line.stevehoang.com` to pin it |
+| `PASSKEY_ORIGIN` | request origin | The origin passkey ceremonies must come from, e.g. `https://line.stevehoang.com`. Its host is the relying party id when `PASSKEY_RP_ID` is unset |
 
 See `.env.example`.
 
@@ -97,12 +161,16 @@ npm test
 
 `test/ui.test.cjs` runs the router against a stub Waline handler and a
 temporary bundle, so it needs neither the database nor a built admin.
+`test/passkey.test.cjs` runs the passkey routes against stub users and a
+software authenticator (a P-256 key pair from `node:crypto`), registering and
+signing in for real.
 
 `test/e2e/admin.e2e.mjs` drives the built admin in Chromium against a fresh
 local server (below): `rm -rf .local && COMMENT_AUDIT=true IPQPS=0 npm run start:local`,
 then `npm run test:e2e` (`BASE` names another server, default `http://localhost:8360`; Playwright must be importable: `npm i --no-save playwright`,
 or `PLAYWRIGHT_MODULE=/path/to/playwright/index.mjs`). Screenshots go to `E2E_OUT`
-(default `$TMPDIR/wcs-e2e`).
+(default `$TMPDIR/wcs-e2e`). The passkey checks use Chromium's virtual
+authenticator and set `PASSKEYS` through the local server's `/__passkeys`.
 
 ## Running locally
 
@@ -125,7 +193,10 @@ curl -X POST localhost:8360/__register -H 'content-type: application/json' \
   -d '{"display_name":"Steve","email":"admin@example.com","password":"Admin-pass-1"}'
 ```
 
-The first account becomes the administrator. `PORT`, `SQLITE_PATH` and
+The first account becomes the administrator. `POST /__passkeys` with a
+`PASSKEYS` value as the body sets that variable in the running server (an
+empty body removes it), standing in for editing it in Vercel and redeploying.
+Passkeys work on `http://localhost`. `PORT`, `SQLITE_PATH` and
 `JWT_TOKEN` override the defaults; delete `.local/` to start over.
 
 ## Deploying

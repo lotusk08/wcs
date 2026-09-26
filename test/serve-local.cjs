@@ -43,6 +43,20 @@ http
         res.end();
       });
     }
+    if (req.url === '/__passkeys' && req.method === 'POST') {
+      const chunks = [];
+
+      req.on('data', (chunk) => chunks.push(chunk));
+      req.on('end', () => {
+        const value = Buffer.concat(chunks).toString('utf8').trim();
+
+        if (value) process.env.PASSKEYS = value;
+        else delete process.env.PASSKEYS;
+        res.writeHead(204);
+        res.end();
+      });
+      return;
+    }
     req.headers['x-forwarded-proto'] ||= 'http';
     Promise.resolve(handler(req, res)).catch((err) => {
       console.error(err);

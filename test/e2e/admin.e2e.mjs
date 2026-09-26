@@ -992,6 +992,267 @@ check(6, 'no horizontal scroll at 320/360/390/414/768/1280 on every page, both t
   }
 }
 
+{
+  const PASSWORD = 'New-pass-22';
+  const notice = (page) => page.locator('.notice').textContent().catch(() => '');
+  const stored = (page) => page.evaluate(() => ({ session: sessionStorage.getItem('TOKEN'), local: localStorage.getItem('TOKEN') }));
+  const setPasskeys = (value) => fetch(`${BASE}/__passkeys`, { method: 'POST', body: value });
+  const noAutofill = (ctx) => ctx.addInitScript(() => {
+    if (window.PublicKeyCredential) window.PublicKeyCredential.isConditionalMediationAvailable = async () => false;
+  });
+  const authenticator = async (page, { verified = true, credential } = {}) => {
+    const cdp = await page.context().newCDPSession(page);
+    await cdp.send('WebAuthn.enable', { enableUI: false });
+    const { authenticatorId } = await cdp.send('WebAuthn.addVirtualAuthenticator', {
+      options: { protocol: 'ctap2', transport: 'internal', hasResidentKey: true, hasUserVerification: true, isUserVerified: verified, automaticPresenceSimulation: true },
+    });
+    if (credential) await cdp.send('WebAuthn.addCredential', { authenticatorId, credential });
+    return { cdp, authenticatorId };
+  };
+  const passkeyPosts = (page) => {
+    const list = [];
+    page.on('request', (r) => r.method() === 'POST' && new URL(r.url()).pathname.startsWith('/api/passkey') && list.push(new URL(r.url()).pathname));
+    return list;
+  };
+  const shots = (name) => `${OUT}/passkey-${name}.png`;
+  const me = (await api('token', { token: adminToken })).data;
+
+  await setPasskeys('');
+  {
+    const ctx = await ctxFor();
+    const page = await open(ctx, '/login');
+    check(11, 'no PASSKEYS: login page has no passkey button and plain username autofill', (await page.locator('.btn-passkey').count()) === 0 && (await page.locator('input[name=email]').getAttribute('autocomplete')) === 'username' && (await page.evaluate(() => window.PASSKEY_ENABLED)) === false);
+    await ctx.close();
+  }
+
+  const unauth = await fetch(`${BASE}/api/passkey`);
+  const guestList = await fetch(`${BASE}/api/passkey`, { headers: { authorization: `Bearer ${guestToken}` } });
+  const guestReg = await fetch(`${BASE}/api/passkey/register/options`, { method: 'POST', headers: { authorization: `Bearer ${guestToken}` } });
+  const noConfig = await fetch(`${BASE}/api/passkey/login/options`, { method: 'POST' });
+  check(11, 'passkey API: listing and registration need the administrator', unauth.status === 401 && guestList.status === 403 && guestReg.status === 403, `${unauth.status} ${guestList.status} ${guestReg.status}`);
+  check(11, 'passkey API: sign-in options say not configured without PASSKEYS', noConfig.status === 404 && (await noConfig.json()).errno === 'passkey_not_configured', String(noConfig.status));
+
+  let value = '';
+  let credential = null;
+  {
+    const ctx = await ctxFor({ token: adminToken });
+    await ctx.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: BASE });
+    const page = await open(ctx);
+    const { cdp, authenticatorId } = await authenticator(page);
+    await page.goto(`${BASE}/profile`);
+    await settle(page);
+    const section = page.locator('#passkeys');
+    await section.locator('.muted').first().waitFor({ timeout: 5000 }).catch(() => {});
+    check(11, 'profile shows a Passkeys section with none configured', (await section.count()) === 1 && /no passkeys/iu.test(await section.textContent()), (await section.textContent().catch(() => '')).slice(0, 120));
+    await page.fill('input[name=passkeyName]', 'E2E key');
+    await section.getByRole('button', { name: 'Add passkey' }).click();
+    await page.locator('.passkey-result').waitFor({ timeout: 10000 }).catch(() => {});
+    value = await page.locator('.passkey-value').inputValue().catch(() => '');
+    let entries = [];
+    try {
+      entries = JSON.parse(value);
+    } catch {
+      entries = [];
+    }
+    check(11, 'Add passkey returns the full PASSKEYS value', entries.length === 1 && entries[0].name === 'E2E key' && entries[0].userId === String(me.objectId) && /^[\w-]+$/u.test(entries[0].publicKey) && entries[0].createdAt, value.slice(0, 120));
+    const steps = await page.locator('.passkey-steps li').allTextContents();
+    check(11, 'the result explains the Vercel steps', steps.length === 3 && /Environment Variables/u.test(steps[1]) && /PASSKEYS/u.test(steps[1]) && /Redeploy/iu.test(steps[2]), steps.join(' | '));
+    await page.locator('.passkey-result').getByRole('button', { name: 'Copy' }).click();
+    await sleep(200);
+    const clip = await page.evaluate(() => navigator.clipboard.readText()).catch(() => '');
+    check(11, 'Copy puts the PASSKEYS value on the clipboard', clip === value && (await page.locator('.passkey-result').getByRole('button', { name: 'Copied' }).count()) === 1, clip.slice(0, 60));
+    await page.setViewportSize({ width: 390, height: 800 });
+    await section.screenshot({ path: shots('profile-result-390-light') });
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await section.screenshot({ path: shots('profile-result-1280-light') });
+    ({ credentials: [credential] } = await cdp.send('WebAuthn.getCredentials', { authenticatorId }));
+    check(11, 'the authenticator holds a discoverable credential for localhost', credential?.isResidentCredential === true && credential.rpId === 'localhost', JSON.stringify(credential ?? {}).slice(0, 120));
+
+    await setPasskeys(value);
+    await page.reload();
+    await settle(page);
+    await section.locator('.passkey-item').first().waitFor({ timeout: 5000 }).catch(() => {});
+    const items = await section.locator('.passkey-item-name').allTextContents();
+    check(11, 'after PASSKEYS is set the profile lists the passkey', items.length === 1 && items[0] === 'E2E key' && /added/iu.test(await section.locator('.passkey-item-meta').first().textContent()), items.join(','));
+
+    await page.reload();
+    await settle(page);
+    await section.getByRole('button', { name: 'Add passkey' }).click();
+    await page.locator('#passkeys .passkey-error').waitFor({ timeout: 10000 }).catch(() => {});
+    check(11, 'adding the same device again is refused clearly', /already has a passkey/iu.test(await page.locator('#passkeys .passkey-error').textContent().catch(() => '')) && (await page.locator('.passkey-result').count()) === 0, await page.locator('#passkeys .passkey-error').textContent().catch(() => ''));
+    check(11, 'no page errors on the profile passkey flow', !page.__console.filter((e) => !e.startsWith('Failed to load resource')).length, page.__console.join(' | '));
+    await ctx.close();
+  }
+
+  const setup = await api('token/2fa', { token: adminToken });
+  const secret = setup.data?.secret;
+  const totp = () => speakeasy.totp({ secret, encoding: 'base32' });
+  const enabled = await api('token/2fa', { method: 'POST', token: adminToken, body: { code: totp(), secret } });
+  check(11, '2FA on again for the passkey sign-in', enabled.errno === 0);
+
+  {
+    const ctx = await ctxFor();
+    const page = await open(ctx, '/login');
+    const button = page.locator('.btn-passkey');
+    check(11, 'with PASSKEYS the login page offers a passkey button above the form', (await button.count()) === 1 && (await page.evaluate(() => window.PASSKEY_ENABLED)) === true && (await page.evaluate(() => document.querySelector('.btn-passkey').compareDocumentPosition(document.querySelector('form[name=login]')) & Node.DOCUMENT_POSITION_FOLLOWING)) > 0 && (await button.textContent()).includes('Sign in with a passkey'));
+    check(11, 'the email field joins passkey autofill', (await page.locator('input[name=email]').getAttribute('autocomplete')) === 'username webauthn');
+    await ctx.close();
+  }
+
+  {
+    const ctx = await ctxFor();
+    await noAutofill(ctx);
+    const page = await open(ctx);
+    await authenticator(page, { credential });
+    await page.goto(`${BASE}/login`);
+    await settle(page);
+    const posts = passkeyPosts(page);
+    const tokenLogin = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/passkey/login', { timeout: 10000 }).catch(() => null);
+    await page.locator('.btn-passkey').click();
+    const resp = await tokenLogin;
+    await page.waitForURL(`${BASE}/`, { timeout: 10000 }).catch(() => {});
+    await settle(page);
+    const saved = await stored(page);
+    check(11, 'passkey button signs in straight to the manager, no TOTP asked', (await loc(page)) === '/' && (await h1(page)) === 'Comments' && (await page.locator('input[name=code]').count()) === 0 && posts.join(',') === '/api/passkey/login/options,/api/passkey/login', `${await loc(page)} ${posts.join(',')} ${await notice(page)}`);
+    check(11, 'passkey session-only login keeps the token out of localStorage', Boolean(saved.session) && !saved.local, JSON.stringify(saved));
+    const who = await api('token', { token: saved.session });
+    check(11, 'the passkey token is a normal Waline token for the admin', who.data?.objectId === me.objectId && who.data?.type === 'administrator');
+    const listed = await api('comment?type=list&page=1', { token: saved.session });
+    check(11, 'admin APIs accept the passkey token', listed.errno === 0 && Array.isArray(listed.data?.data));
+    const passkeyData = resp ? (await resp.json()).data : {};
+    const pwd = await api('token', { method: 'POST', body: { email: ADMIN.email, password: PASSWORD, code: totp() } });
+    const keys = (o) => Object.keys(o ?? {}).sort().join(',');
+    check(11, 'passkey sign-in answers exactly like POST /api/token', pwd.errno === 0 && keys(passkeyData) === keys(pwd.data) && passkeyData.password === null && passkeyData.avatar === pwd.data.avatar, `${keys(passkeyData)} vs ${keys(pwd.data)}`);
+    check(11, 'the header shows the account right after passkey login', (await page.locator('.me-name').textContent().catch(() => '')) === 'Steve Edited');
+    await logout(page);
+    check(11, 'logout after a passkey login clears the token', !(await stored(page)).session && (await h1(page)) === 'Login');
+
+    await page.check('input[name=remember]');
+    await page.locator('.btn-passkey').click();
+    await page.waitForURL(`${BASE}/`, { timeout: 10000 }).catch(() => {});
+    await settle(page);
+    await page.waitForFunction(() => document.querySelector('h1')?.textContent === 'Comments', null, { timeout: 5000 }).catch(() => {});
+    const remembered = await stored(page);
+    check(11, 'remember me is respected by passkey login', (await h1(page)) === 'Comments' && Boolean(remembered.local) && remembered.local === remembered.session, JSON.stringify(remembered));
+    await logout(page);
+    await ctx.close();
+  }
+
+  {
+    const ctx = await ctxFor();
+    const page = await open(ctx);
+    await authenticator(page, { credential });
+    const posts = passkeyPosts(page);
+    await page.goto(`${BASE}/login`);
+    await page.waitForURL(`${BASE}/`, { timeout: 10000 }).catch(() => {});
+    await settle(page);
+    check(11, 'conditional UI: choosing the passkey from autofill signs in', (await loc(page)) === '/' && (await h1(page)) === 'Comments' && posts.includes('/api/passkey/login'), `${await loc(page)} ${posts.join(',')}`);
+    await ctx.close();
+  }
+
+  {
+    const ctx = await ctxFor();
+    const blog = await ctx.newPage();
+    await blog.goto('https://stevehoang.com/posts/x');
+    await blog.evaluate(() => {
+      window.__messages = [];
+      addEventListener('message', (e) => window.__messages.push({ origin: e.origin, data: e.data }));
+    });
+    await noAutofill(ctx);
+    const [popup] = await Promise.all([ctx.waitForEvent('page'), blog.evaluate((url) => window.open(url, 'login'), `${BASE}/login`)]);
+    await authenticator(popup, { credential });
+    await settle(popup);
+    await popup.locator('.btn-passkey').click();
+    await sleep(1500);
+    const messages = await blog.evaluate(() => window.__messages);
+    const info = messages.find((m) => m.data?.type === 'userInfo');
+    check(11, 'blog popup: passkey login posts userInfo with the token, without the 2FA secret or password', info && info.origin === new URL(BASE).origin && typeof info.data.data.token === 'string' && info.data.data.email === ADMIN.email && !('2fa' in info.data.data) && !('password' in info.data.data), info ? Object.keys(info.data.data).join(',') : JSON.stringify(messages).slice(0, 200));
+    await ctx.close();
+  }
+
+  {
+    const ctx = await ctxFor();
+    await noAutofill(ctx);
+    const page = await open(ctx);
+    const { privateKey } = crypto.generateKeyPairSync('ec', { namedCurve: 'P-256' });
+    await authenticator(page, {
+      credential: {
+        credentialId: crypto.randomBytes(16).toString('base64'),
+        isResidentCredential: true,
+        rpId: 'localhost',
+        privateKey: privateKey.export({ format: 'der', type: 'pkcs8' }).toString('base64'),
+        userHandle: Buffer.from(String(me.objectId)).toString('base64'),
+        signCount: 0,
+      },
+    });
+    await page.goto(`${BASE}/login`);
+    await settle(page);
+    await page.locator('.btn-passkey').click();
+    await page.locator('.notice').waitFor({ timeout: 10000 }).catch(() => {});
+    check(11, 'an unknown passkey fails cleanly with a clear message', /isn't set up for this site/iu.test(await notice(page)) && (await loc(page)) === '/login' && !(await stored(page)).session && !(await page.locator('.btn-passkey').isDisabled()), await notice(page));
+    await page.setViewportSize({ width: 390, height: 800 });
+    await page.screenshot({ path: shots('login-error-390-light') });
+    await ctx.close();
+  }
+
+  {
+    const ctx = await ctxFor();
+    await noAutofill(ctx);
+    const page = await open(ctx);
+    await authenticator(page, { verified: false, credential });
+    await page.goto(`${BASE}/login`);
+    await settle(page);
+    const posts = passkeyPosts(page);
+    await page.locator('.btn-passkey').click();
+    await page.locator('.notice').waitFor({ timeout: 10000 }).catch(() => {});
+    check(11, 'a refused or cancelled prompt shows a message and sends no sign-in', /cancelled|timed out/iu.test(await notice(page)) && !posts.includes('/api/passkey/login') && (await loc(page)) === '/login', `${await notice(page)} ${posts.join(',')}`);
+    await page.fill('input[name=email]', ADMIN.email);
+    await page.fill('input[name=password]', PASSWORD);
+    await page.locator('input[name=email]').blur();
+    await page.locator('input[name=code]').waitFor({ timeout: 5000 }).catch(() => {});
+    await page.fill('input[name=code]', totp());
+    await page.click('form[name=login] button[type=submit]');
+    await page.waitForURL(`${BASE}/`, { timeout: 5000 }).catch(() => {});
+    await settle(page);
+    check(11, 'the password + 2FA form still works next to the passkey button', (await loc(page)) === '/' && (await h1(page)) === 'Comments', await loc(page));
+    await ctx.close();
+  }
+
+  {
+    const overflow = [];
+    for (const scheme of ['light', 'dark']) {
+      for (const width of [320, 390, 1280]) {
+        const ctx = await ctxFor({ width, scheme });
+        await noAutofill(ctx);
+        const page = await open(ctx, '/login');
+        await page.locator('.btn-passkey').waitFor({ timeout: 5000 }).catch(() => {});
+        const sw = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+        if (sw > 0) overflow.push(`login ${width} ${scheme}`);
+        if (width !== 320) await page.screenshot({ path: shots(`login-${width}-${scheme}`), fullPage: true });
+        await ctx.close();
+        const actx = await ctxFor({ width, scheme, token: adminToken });
+        const ap = await open(actx, '/profile');
+        await ap.locator('#passkeys .passkey-item').first().waitFor({ timeout: 5000 }).catch(() => {});
+        const asw = await ap.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+        if (asw > 0) overflow.push(`profile ${width} ${scheme}`);
+        if (width !== 320) await ap.locator('#passkeys').screenshot({ path: shots(`profile-${width}-${scheme}`) });
+        await actx.close();
+      }
+    }
+    check(11, 'passkey button and Passkeys section fit at 320/390/1280 in both themes', overflow.length === 0, overflow.join(' | '));
+  }
+
+  const off = await api('user', { method: 'PUT', token: adminToken, body: { '2fa': '' } });
+  check(11, '2FA turned off after the passkey checks', off.errno === 0);
+  await setPasskeys('');
+  {
+    const ctx = await ctxFor();
+    const page = await open(ctx, '/login');
+    check(11, 'removing PASSKEYS hides the passkey button again', (await page.locator('.btn-passkey').count()) === 0);
+    await ctx.close();
+  }
+}
+
 check(8, 'no CSP violations across the whole run', cspViolations.length === 0, [...new Set(cspViolations)].slice(0, 5).join(' | '));
 await browser.close();
 fs.writeFileSync(`${OUT}/e2e-results.json`, JSON.stringify(results, null, 2));

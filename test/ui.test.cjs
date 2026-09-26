@@ -86,6 +86,7 @@ describe('ui router', () => {
         assert.equal(globalOf(res.body, 'serverURL'), 'https://line.stevehoang.com/api/');
         assert.equal(globalOf(res.body, 'AVATAR_PROXY'), undefined);
         assert.equal(globalOf(res.body, 'DEFAULT_AVATAR'), undefined);
+        assert.equal(globalOf(res.body, 'PASSKEY_ENABLED'), false);
       });
     }
   }
@@ -647,6 +648,47 @@ describe('registration guard', () => {
       assert.equal((await request(ctx.port, { method: 'POST', path: '/api/user', headers: host, body })).status, 403);
       env.ALLOW_REGISTER = 'true';
       assert.equal((await request(ctx.port, { method: 'POST', path: '/api/user', headers: host, body })).status, 200);
+    } finally {
+      ctx.server.close();
+    }
+  });
+});
+
+describe('passkeys', () => {
+  test('PASSKEY_ENABLED is true only when PASSKEYS has a valid entry, read per request', async () => {
+    const env = {};
+    const ctx = await serve({ env });
+    try {
+      for (const [value, want] of [
+        [undefined, false],
+        ['', false],
+        ['{not json', false],
+        ['{"id":"a","publicKey":"b","userId":"1"}', false],
+        ['[{"id":"a"}]', false],
+        ['[]', false],
+        ['[{"id":"a","publicKey":"b","userId":"1"}]', true],
+        ['[{"id":"a","publicKey":"b","userId":1,"name":"x"},{"bad":true}]', true],
+      ]) {
+        if (value === undefined) delete env.PASSKEYS;
+        else env.PASSKEYS = value;
+        const res = await request(ctx.port, { path: '/login' });
+        assert.equal(res.status, 200, String(value));
+        assert.equal(globalOf(res.body, 'PASSKEY_ENABLED'), want, String(value));
+      }
+    } finally {
+      ctx.server.close();
+    }
+  });
+
+  test('the passkey API is left to the next handler', async () => {
+    const ctx = await serve();
+    try {
+      for (const [method, p] of [['GET', '/api/passkey'], ['POST', '/api/passkey/login/options'], ['POST', '/api/passkey/login']]) {
+        const before = ctx.calls.length;
+        const res = await request(ctx.port, { method, path: p });
+        assert.equal(res.status, 200);
+        assert.equal(ctx.calls.length, before + 1, `${method} ${p}`);
+      }
     } finally {
       ctx.server.close();
     }
