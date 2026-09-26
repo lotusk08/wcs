@@ -3,7 +3,6 @@
   "comment": "Commentaire",
   "login": "Connexion",
   "logout": "Déconnexion",
-  "register": "Inscription",
   "email": "E-mail",
   "password": "Mot de passe",
   "remember me": "Se souvenir de moi",
@@ -15,7 +14,6 @@
   "website": "Site web",
   "password again": "Mot de passe (à nouveau)",
   "register.login": "Connexion utilisateur",
-  "nickname illegal": "Veuillez saisir un pseudo valide",
   "passwords don't match": "Les mots de passe ne correspondent pas",
   "setting": "Paramètres",
   "profile": "Profil",
@@ -23,7 +21,6 @@
   "homepage": "URL du site personnel",
   "homepage tips": "L'URL du site personnel doit commencer par <1>http://</1> ou <1>https://</1>.",
   "update my profile": "Mettre à jour le profil",
-  "connect to social account": "Connecter un compte social",
   "change password": "Changer le mot de passe",
   "update password": "Mettre à jour le mot de passe",
   "password tips": "Attribuez un mot de passe à cet utilisateur.<br />Il est recommandé d'utiliser des caractères spéciaux combinés à des lettres et des chiffres pour plus de sécurité.",
@@ -56,7 +53,6 @@
   "cancel": "Annuler",
   "at": "à",
   "get userinfo failed": "Échec de la récupération des informations utilisateur",
-  "register success! please go to your mailbox to verify it!": "Inscription réussie ! Veuillez vérifier votre boîte mail.",
   "migration": "Import/Export",
   "exporting": "Exportation...",
   "export": "Exporter",
@@ -103,6 +99,5 @@
   "delete user confirm": "Voulez-vous vraiment supprimer cet utilisateur ? Les utilisateurs vérifiés seront supprimés immédiatement, les autres seront empêchés de se connecter.",
   "avatar": "Avatar",
   "select": "Select",
-  "select item": "Select item",
-  "unbind": "Unbind"
+  "select item": "Select item"
 }

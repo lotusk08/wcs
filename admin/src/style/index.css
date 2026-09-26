@@ -556,7 +556,6 @@ code,
 .sheet-item:active,
 .tabbar-item:active,
 .page-btn:active,
-.social-btn:active,
 .post-chip:active {
   background-color: var(--tint-strong);
 }
@@ -766,44 +765,6 @@ input[type='checkbox'] {
   align-items: center;
   min-height: 44px;
   padding: 0 12px;
-}
-
-.social-login {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
-  gap: 10px;
-  margin-top: 20px;
-  padding-top: 20px;
-  border-top: 1px dashed var(--border-strong);
-}
-
-.social-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-  min-height: 44px;
-  padding: 0 14px;
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius);
-  background: var(--tint);
-  color: var(--heading-color);
-  font-weight: 600;
-  font-size: 0.92rem;
-}
-
-.social-name {
-  text-transform: capitalize;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.social-icon {
-  width: 20px;
-  height: 20px;
-  display: block;
-  flex-shrink: 0;
 }
 
 .empty-page {
@@ -1732,78 +1693,6 @@ input[type='checkbox'] {
   min-height: 46px;
 }
 
-/* Social accounts */
-
-.account-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-}
-
-.account-list.small {
-  gap: 8px;
-  margin-top: 6px;
-}
-
-.account-list.small .social-icon {
-  width: 16px;
-  height: 16px;
-}
-
-.account-item {
-  position: relative;
-  display: inline-block;
-}
-
-.account-item > a {
-  display: grid;
-  place-items: center;
-  width: 44px;
-  height: 44px;
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius);
-}
-
-.account-list.small .account-item > a,
-.account-list.small .account-item {
-  width: auto;
-  height: auto;
-  border: 0;
-}
-
-.account-item .social-icon {
-  filter: grayscale(1);
-  opacity: 0.45;
-  transition: filter 0.15s ease, opacity 0.15s ease;
-}
-
-.account-item.bind .social-icon {
-  filter: none;
-  opacity: 1;
-}
-
-.account-unbind {
-  position: absolute;
-  top: -9px;
-  right: -9px;
-  width: 22px;
-  height: 22px;
-  padding: 0;
-  border: 1px solid var(--border-strong);
-  border-radius: 50%;
-  background: var(--main-bg);
-  color: var(--text-muted-color);
-  font-size: 13px;
-  line-height: 1;
-  cursor: pointer;
-}
-
-.account-unbind::after {
-  content: '';
-  position: absolute;
-  inset: -11px;
-}
-
 /* Profile */
 
 .profile {
@@ -1901,16 +1790,6 @@ input[type='checkbox'] {
   margin-top: 0;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme='light']) .github .social-icon path {
-    fill: #e6e6e6;
-  }
-}
-
-:root[data-theme='dark'] .github .social-icon path {
-  fill: #e6e6e6;
-}
-
 /* Hover */
 
 @media (hover: hover) {
@@ -1948,7 +1827,6 @@ input[type='checkbox'] {
 
   .act:hover:not(:disabled),
   .sheet-item:hover,
-  .social-btn:hover,
   .post-chip:hover {
     background: var(--tint-strong);
   }
@@ -1960,25 +1838,6 @@ input[type='checkbox'] {
 
   .comment-author a:hover {
     color: var(--primary-color);
-  }
-
-  .account-item:hover .social-icon {
-    filter: none;
-    opacity: 1;
-  }
-
-  .account-unbind {
-    opacity: 0;
-  }
-
-  .account-item:hover .account-unbind,
-  .account-unbind:focus-visible {
-    opacity: 1;
-  }
-
-  .account-unbind:hover {
-    color: var(--danger);
-    border-color: var(--danger);
   }
 
   .profile-avatar-btn:hover .profile-avatar-hint {
@@ -2378,10 +2237,6 @@ input[type='checkbox'] {
   .panel .btn-primary,
   .panel .btn-danger {
     width: 100%;
-  }
-
-  .account-list {
-    gap: 14px;
   }
 }
 

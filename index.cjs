@@ -1,5 +1,7 @@
 const path = require('node:path');
 
+process.env.OAUTH_URL = 'data:application/json,{"services":[]}';
+
 const Application = require('@waline/vercel');
 
 const { createAvatar } = require('./lib/avatar.cjs');

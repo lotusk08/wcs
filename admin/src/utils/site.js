@@ -14,10 +14,6 @@ export const API_BASE = (() => {
   return base.endsWith('/') ? base : `${base}/`;
 })();
 
-export const SOCIALS = Array.isArray(window.oauthServices)
-  ? window.oauthServices.map(({ name }) => name)
-  : ['oidc', 'qq', 'weibo', 'github', 'twitter', 'facebook'];
-
 const siteOrigin = (() => {
   try {
     return new URL(SITE_URL).origin;
@@ -31,6 +27,11 @@ export const TRUSTED_ORIGINS = [
     [siteOrigin, location.origin, ...(Array.isArray(window.ALLOWED_ORIGINS) ? window.ALLOWED_ORIGINS : [])].filter(Boolean),
   ),
 ];
+
+const PRIVATE_FIELDS = ['2fa', 'password'];
+
+export const publicUser = (user) =>
+  Object.fromEntries(Object.entries(user ?? {}).filter(([key]) => !PRIVATE_FIELDS.includes(key)));
 
 export const postToOpener = (message) => {
   if (!window.opener) return;

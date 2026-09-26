@@ -3,7 +3,6 @@
   "comment": "댓글",
   "login": "로그인",
   "logout": "로그아웃",
-  "register": "가입",
   "email": "이메일",
   "password": "비밀번호",
   "remember me": "로그인 유지",
@@ -15,7 +14,6 @@
   "website": "개인 웹사이트",
   "password again": "비밀번호 확인",
   "register.login": "로그인",
-  "nickname illegal": "닉네임이 올바르지 않습니다!",
   "passwords don't match": "비밀번호가 일치하지 않습니다",
   "setting": "설정",
   "profile": "프로필",
@@ -23,7 +21,6 @@
   "homepage": "홈페이지",
   "homepage tips": "현재 사용자의 홈페이지입니다. <1>http://</1> 또는 <1>https://</1>로 시작해야 합니다.",
   "update my profile": "프로필 업데이트",
-  "connect to social account": "소셜 계정 연결",
   "change password": "비밀번호 변경",
   "update password": "비밀번호 업데이트",
   "password tips": "시스템 보안을 높이기 위해 특수문자, 영문, 숫자를 혼합하여 사용하는 것을 권장합니다.",
@@ -56,7 +53,6 @@
   "cancel": "취소",
   "at": "작성일",
   "get userinfo failed": "사용자 정보를 가져오는 데 실패했습니다!",
-  "register success! please go to your mailbox to verify it!": "가입 성공! 메일함에서 인증을 완료해 주세요!",
   "migration": "마이그레이션",
   "exporting": "내보내는 중…",
   "export": "내보내기",
@@ -103,6 +99,5 @@
   "delete user confirm": "이 사용자를 삭제하시겠습니까? 인증 사용자는 직접 삭제되며, 다른 사용자는 로그인이 금지됩니다.",
   "avatar": "Avatar",
   "select": "Select",
-  "select item": "Select item",
-  "unbind": "Unbind"
+  "select item": "Select item"
 }

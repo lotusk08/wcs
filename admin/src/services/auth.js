@@ -5,8 +5,16 @@ export const login = ({ email, password, code, recaptchaV3, turnstile }) =>
   request({
     url: 'token',
     method: 'POST',
+    auth: false,
     body: { email, password, code, recaptchaV3, turnstile },
   });
+
+export const saveToken = (token, remember) => {
+  window.TOKEN = token;
+  storage.set('sessionStorage', 'TOKEN', token);
+  if (remember) storage.set('localStorage', 'TOKEN', token);
+  else storage.remove('localStorage', 'TOKEN');
+};
 
 export const logout = () => {
   window.TOKEN = null;
@@ -14,18 +22,12 @@ export const logout = () => {
   storage.remove('localStorage', 'TOKEN');
 };
 
-export const register = (user) => request({ url: 'user', method: 'POST', body: user });
-
 export const forgot = ({ email }) =>
   request({
     url: 'user/password',
     method: 'PUT',
+    auth: false,
     body: { email },
   });
 
-export const getUserInfo = () =>
-  request('token').catch(() => {
-    logout();
-
-    return null;
-  });
+export const getUserInfo = () => request('token');

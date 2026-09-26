@@ -13,11 +13,9 @@ const BUNDLE = 'console.log("admin");\n';
 
 fs.writeFileSync(bundlePath, BUNDLE);
 
-const okFetch = async () => ({ json: async () => ({ services: [{ name: 'github' }] }) });
-
 function serve(options = {}) {
   const calls = [];
-  const ui = createUi({ bundlePath, env: {}, fetch: okFetch, ...options });
+  const ui = createUi({ bundlePath, env: {}, ...options });
   const server = http.createServer(async (req, res) => {
     if (await ui(req, res)) return;
     calls.push({ method: req.method, url: req.url });
@@ -30,7 +28,7 @@ function serve(options = {}) {
   });
 }
 
-function request(port, { method = 'GET', path: p = '/', headers = {} } = {}) {
+function request(port, { method = 'GET', path: p = '/', headers = {}, body } = {}) {
   return new Promise((resolve, reject) => {
     const req = http.request({ host: '127.0.0.1', port, method, path: p, headers }, (res) => {
       let body = '';
@@ -39,7 +37,7 @@ function request(port, { method = 'GET', path: p = '/', headers = {} } = {}) {
       res.on('end', () => resolve({ status: res.statusCode, headers: res.headers, body }));
     });
     req.on('error', reject);
-    req.end();
+    req.end(body);
   });
 }
 
@@ -58,7 +56,7 @@ describe('ui router', () => {
   });
   after(() => ctx.server.close());
 
-  const shellRoutes = ['/', '/login', '/register', '/forgot', '/profile', '/user', '/migration'];
+  const shellRoutes = ['/', '/login', '/forgot', '/profile', '/user', '/migration'];
 
   for (const route of shellRoutes) {
     for (const p of new Set([route, `${route}/`.replace('//', '/'), `${route}?token=abc&x=1`])) {
@@ -84,7 +82,7 @@ describe('ui router', () => {
         assert.deepEqual(globalOf(res.body, 'ALLOWED_ORIGINS'), []);
         assert.equal(globalOf(res.body, 'recaptchaV3Key'), undefined);
         assert.equal(globalOf(res.body, 'turnstileKey'), undefined);
-        assert.deepEqual(globalOf(res.body, 'oauthServices'), [{ name: 'github' }]);
+        assert.deepEqual(globalOf(res.body, 'oauthServices'), []);
         assert.equal(globalOf(res.body, 'serverURL'), 'https://line.stevehoang.com/api/');
         assert.equal(globalOf(res.body, 'AVATAR_PROXY'), undefined);
         assert.equal(globalOf(res.body, 'DEFAULT_AVATAR'), undefined);
@@ -113,6 +111,20 @@ describe('ui router', () => {
     assert.equal(res.status, 200);
     assert.deepEqual(JSON.parse(res.body), { waline: true, url: '/' });
     assert.deepEqual(ctx.calls[before], { method: 'POST', url: '/' });
+  });
+
+  test('GET /register redirects to /login and keeps the query', async () => {
+    for (const [p, location] of [
+      ['/register', '/login'],
+      ['/register/', '/login'],
+      ['/register?redirect=%2Fuser', '/login?redirect=%2Fuser'],
+    ]) {
+      const before = ctx.calls.length;
+      const res = await request(ctx.port, { path: p });
+      assert.equal(res.status, 302, p);
+      assert.equal(res.headers.location, location, p);
+      assert.equal(ctx.calls.length, before, p);
+    }
   });
 
   test('POST /login passes through', async () => {
@@ -241,69 +253,22 @@ describe('missing bundle', () => {
 });
 
 describe('oauth services', () => {
-  test('a failing fetch yields [] and the page still renders', async () => {
-    const ctx = await serve({
-      fetch: async () => {
-        throw new Error('down');
-      },
-    });
+  test('the shell never fetches the OAuth service list', async () => {
+    const original = globalThis.fetch;
+    let calls = 0;
+
+    globalThis.fetch = async () => {
+      calls += 1;
+      throw new Error('no network');
+    };
+    const ctx = await serve({ env: { OAUTH_URL: 'https://oauth.example' } });
     try {
       const res = await request(ctx.port, { path: '/login' });
       assert.equal(res.status, 200);
       assert.deepEqual(globalOf(res.body, 'oauthServices'), []);
+      assert.equal(calls, 0);
     } finally {
-      ctx.server.close();
-    }
-  });
-
-  test('a bad payload yields []', async () => {
-    const ctx = await serve({ fetch: async () => ({ json: async () => ({ nope: 1 }) }) });
-    try {
-      const res = await request(ctx.port, { path: '/' });
-      assert.deepEqual(globalOf(res.body, 'oauthServices'), []);
-    } finally {
-      ctx.server.close();
-    }
-  });
-
-  test('a hanging fetch times out', async () => {
-    const hang = (_url, { signal }) =>
-      new Promise((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason)));
-    const ctx = await serve({ fetch: hang, oauthTimeout: 100 });
-    try {
-      const started = Date.now();
-      const res = await request(ctx.port, { path: '/' });
-      assert.equal(res.status, 200);
-      assert.ok(Date.now() - started < 1500);
-      assert.deepEqual(globalOf(res.body, 'oauthServices'), []);
-    } finally {
-      ctx.server.close();
-    }
-  });
-
-  test('services are cached and refetched after the ttl', async () => {
-    let clock = 0;
-    let count = 0;
-    const urls = [];
-    const ctx = await serve({
-      env: { OAUTH_URL: 'https://oauth.example' },
-      now: () => clock,
-      fetch: async (url) => {
-        count += 1;
-        urls.push(url);
-        return { json: async () => ({ services: [{ name: `n${count}` }] }) };
-      },
-    });
-    try {
-      await Promise.all([request(ctx.port, { path: '/' }), request(ctx.port, { path: '/' })]);
-      await request(ctx.port, { path: '/' });
-      assert.equal(count, 1);
-      clock = 11 * 60 * 1000;
-      const res = await request(ctx.port, { path: '/' });
-      assert.equal(count, 2);
-      assert.deepEqual(globalOf(res.body, 'oauthServices'), [{ name: 'n2' }]);
-      assert.deepEqual(urls, ['https://oauth.example', 'https://oauth.example']);
-    } finally {
+      globalThis.fetch = original;
       ctx.server.close();
     }
   });
@@ -314,7 +279,6 @@ describe('environment and origin', () => {
     const evil = '</script><script>alert(1)</script>&\u2028\u2029"\'';
     const ctx = await serve({
       env: { SITE_NAME: evil, SITE_URL: evil, RECAPTCHA_V3_KEY: evil, TURNSTILE_KEY: 'tk' },
-      fetch: async () => ({ json: async () => ({ services: [{ name: evil }] }) }),
     });
     try {
       const res = await request(ctx.port, { path: '/' });
@@ -328,7 +292,6 @@ describe('environment and origin', () => {
       assert.equal(globalOf(res.body, 'SITE_URL'), evil);
       assert.equal(globalOf(res.body, 'recaptchaV3Key'), evil);
       assert.equal(globalOf(res.body, 'turnstileKey'), 'tk');
-      assert.deepEqual(globalOf(res.body, 'oauthServices'), [{ name: evil }]);
     } finally {
       ctx.server.close();
     }
@@ -497,85 +460,160 @@ describe('content security policy', () => {
   });
 });
 
-describe('oauth redirect guard', () => {
+describe('oauth guard', () => {
   let ctx;
 
   before(async () => {
-    ctx = await serve({ env: { SITE_URL: 'https://stevehoang.com', ALLOWED_ORIGINS: 'https://friend.example' } });
+    ctx = await serve({ env: { SITE_URL: 'https://stevehoang.com', ALLOWED_ORIGINS: 'https://friend.example', _HANDLER: 'index.handler' } });
   });
   after(() => ctx.server.close());
 
   const host = { host: 'line.stevehoang.com' };
 
-  test('foreign or malformed redirects are refused before Waline sees them', async () => {
-    const bad = [
-      'https://evil.com',
-      'https://evil.com/profile',
-      '//evil.com',
-      '/\\evil.com',
-      '\\\\evil.com',
-      '/\t/evil.com',
-      ' //evil.com',
-      'javascript:alert(1)',
-      'data:text/html,x',
-      'ftp://line.stevehoang.com/',
-      'http://stevehoang.com.evil.com/',
-      'https://stevehoang.com@evil.com/',
-      'https://line.stevehoang.com:444/',
+  test('every OAuth route is refused before Waline sees it, whatever the type or redirect', async () => {
+    const paths = [
+      '/api/oauth',
+      '/api/oauth/',
+      '/oauth',
+      '/oauth/',
+      '/api/oauth.html',
+      '/api/oauth/index',
+      '/api/oauth/github',
+      '/API/OAUTH',
+      '//api//oauth',
+      '/api//oauth',
+      '/apioauth',
+      '/api/%6fauth',
+      '/.netlify/functions/index/oauth',
+      'http://line.stevehoang.com/api/oauth',
     ];
-    const paths = ['/api/oauth', '/api/oauth/', '/oauth', '/oauth/', '/api/oauth.html', '/api/oauth/index', '/API/OAUTH', '//api//oauth'];
+    const queries = [
+      '',
+      '?type=github',
+      '?type=qq',
+      '?type=weibo&redirect=%2Fprofile',
+      `?type=github&redirect=${encodeURIComponent('https://stevehoang.com/posts/x')}`,
+      '?code=1&state=x&type=github',
+      `?type=github&redirect=${encodeURIComponent('https://evil.com')}`,
+    ];
 
     for (const p of paths) {
-      for (const value of bad) {
-        for (const method of ['GET', 'HEAD', 'POST']) {
+      for (const q of queries) {
+        for (const method of ['GET', 'HEAD', 'POST', 'OPTIONS']) {
           const before = ctx.calls.length;
-          const res = await request(ctx.port, {
-            method,
-            path: `${p}?type=github&redirect=${encodeURIComponent(value)}`,
-            headers: host,
-          });
-          assert.equal(res.status, 400, `${method} ${p} ${value}`);
-          assert.equal(ctx.calls.length, before, `${method} ${p} ${value}`);
+          const res = await request(ctx.port, { method, path: `${p}${q}`, headers: host });
+          assert.equal(res.status, 404, `${method} ${p}${q}`);
+          assert.equal(ctx.calls.length, before, `${method} ${p}${q}`);
+          if (method === 'GET') assert.equal(JSON.parse(res.body).errno, 404);
         }
       }
     }
-
-    const twice = await request(ctx.port, {
-      path: `/api/oauth?redirect=${encodeURIComponent('/profile')}&redirect=${encodeURIComponent('https://evil.com')}`,
-      headers: host,
-    });
-    assert.equal(twice.status, 400);
   });
 
-  test('same-origin, blog and allowed redirects pass through', async () => {
-    const good = [
-      '/profile',
-      '/login?redirect=%2Fuser',
-      'https://line.stevehoang.com/login?redirect=https%3A%2F%2Fstevehoang.com%2Fposts%2Fx',
-      'https://stevehoang.com/posts/x',
-      'https://friend.example/page',
-      '',
-    ];
-
-    for (const value of good) {
-      const p = `/api/oauth?type=github&redirect=${encodeURIComponent(value)}`;
-      const res = await request(ctx.port, { path: p, headers: host });
-      assert.equal(res.status, 200, value);
-      assert.deepEqual(ctx.calls.at(-1), { method: 'GET', url: p });
-    }
-
-    for (const p of ['/api/oauth?type=github', '/api/oauth?code=1&state=x', '/oauthx?redirect=https%3A%2F%2Fevil.com', '/api/token?redirect=https%3A%2F%2Fevil.com']) {
+  test('look-alike paths still pass through', async () => {
+    for (const p of ['/oauthx?type=github', '/api/oauthx', '/api/token?redirect=https%3A%2F%2Fevil.com', '/api/comment/oauth']) {
       const res = await request(ctx.port, { path: p, headers: host });
       assert.equal(res.status, 200, p);
       assert.deepEqual(ctx.calls.at(-1), { method: 'GET', url: p });
     }
   });
+});
 
-  test('the request origin follows forwarded headers', async () => {
-    const res = await request(ctx.port, {
-      path: `/api/oauth?redirect=${encodeURIComponent('http://localhost:8360/profile')}`,
-      headers: { host: 'localhost:8360', 'x-forwarded-proto': 'http' },
-    });
-    assert.equal(res.status, 200);
+describe('registration guard', () => {
+  const host = { host: 'line.stevehoang.com', 'content-type': 'application/json' };
+  const body = JSON.stringify({ email: 'x@example.com', password: 'p', display_name: 'X' });
+  const registerPaths = [
+    '/api/user',
+    '/api/user/',
+    '/api/user?lang=en',
+    '/api/user.html',
+    '/api/user/123',
+    '/api/USER',
+    '/api//user',
+    '//api/user',
+    '/apiuser',
+    '/user',
+    '/user/',
+    '/api/user?method=put',
+    '/.netlify/functions/index/user',
+    'http://line.stevehoang.com/api/user',
+  ];
+
+  test('POST /api/user (Waline sign-up) is refused by default', async () => {
+    const ctx = await serve({ env: { _HANDLER: 'index.handler' } });
+    try {
+      for (const p of registerPaths) {
+        const before = ctx.calls.length;
+        const res = await request(ctx.port, { method: 'POST', path: p, headers: host, body });
+        assert.equal(res.status, 403, p);
+        assert.equal(ctx.calls.length, before, p);
+        assert.deepEqual(JSON.parse(res.body), { errno: 403, errmsg: 'Registration is closed.' });
+      }
+    } finally {
+      ctx.server.close();
+    }
+  });
+
+  test('profile updates, user management, password reset and login still pass', async () => {
+    const ctx = await serve();
+    try {
+      const allowed = [
+        ['PUT', '/api/user'],
+        ['PUT', '/api/user/123'],
+        ['DELETE', '/api/user/123'],
+        ['GET', '/api/user?page=1'],
+        ['PUT', '/api/user/password'],
+        ['POST', '/api/user/password'],
+        ['POST', '/api/token'],
+        ['GET', '/api/token/2fa?email=a%40b.c'],
+        ['POST', '/api/token/2fa'],
+        ['POST', '/api/comment'],
+        ['POST', '/api/users'],
+        ['OPTIONS', '/api/user'],
+      ];
+
+      for (const [method, p] of allowed) {
+        const res = await request(ctx.port, { method, path: p, headers: host, body: ['PUT', 'POST'].includes(method) ? body : undefined });
+        assert.equal(res.status, 200, `${method} ${p}`);
+        assert.deepEqual(ctx.calls.at(-1), { method, url: p });
+      }
+    } finally {
+      ctx.server.close();
+    }
+  });
+
+  test('ALLOW_REGISTER=true reopens sign-up', async () => {
+    for (const value of ['true', 'TRUE', ' true ']) {
+      const ctx = await serve({ env: { ALLOW_REGISTER: value } });
+      try {
+        const res = await request(ctx.port, { method: 'POST', path: '/api/user', headers: host, body });
+        assert.equal(res.status, 200, value);
+        assert.deepEqual(ctx.calls.at(-1), { method: 'POST', url: '/api/user' });
+      } finally {
+        ctx.server.close();
+      }
+    }
+
+    for (const value of ['1', 'yes', 'false', '']) {
+      const ctx = await serve({ env: { ALLOW_REGISTER: value } });
+      try {
+        const res = await request(ctx.port, { method: 'POST', path: '/api/user', headers: host, body });
+        assert.equal(res.status, 403, JSON.stringify(value));
+      } finally {
+        ctx.server.close();
+      }
+    }
+  });
+
+  test('the flag is read per request', async () => {
+    const env = {};
+    const ctx = await serve({ env });
+    try {
+      assert.equal((await request(ctx.port, { method: 'POST', path: '/api/user', headers: host, body })).status, 403);
+      env.ALLOW_REGISTER = 'true';
+      assert.equal((await request(ctx.port, { method: 'POST', path: '/api/user', headers: host, body })).status, 200);
+    } finally {
+      ctx.server.close();
+    }
   });
 });

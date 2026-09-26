@@ -10,7 +10,6 @@ import Login from './pages/login/index.jsx';
 import ManageComments from './pages/manage-comments/index.jsx';
 import Migration from './pages/migration/index.jsx';
 import Profile from './pages/profile/index.jsx';
-import Register from './pages/register/index.jsx';
 import User from './pages/user/index.jsx';
 import { store } from './store/index.js';
 
@@ -28,6 +27,12 @@ function Legacy() {
   const path = location.pathname.replace(/^\/ui(?=\/|$)/u, '') || '/';
 
   return <Navigate to={`${path}${location.search}`} replace />;
+}
+
+function ToLogin() {
+  const { search } = useLocation();
+
+  return <Navigate to={`/login${search}`} replace />;
 }
 
 function NotFound() {
@@ -57,7 +62,7 @@ export default function App() {
         <Routes>
           <Route path="/" element={<Home />} />
           <Route path="/login" element={<Login />} />
-          <Route path="/register" element={<Register />} />
+          <Route path="/register" element={<ToLogin />} />
           <Route path="/forgot" element={<Forgot />} />
           <Route
             path="/profile"

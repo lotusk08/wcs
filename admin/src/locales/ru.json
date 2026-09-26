@@ -3,7 +3,6 @@
   "comment": "Комментарий",
   "login": "Войти",
   "logout": "Выйти",
-  "register": "Регистрация пользователя",
   "email": "Эл. почта",
   "password": "Пароль",
   "remember me": "Запомнить меня",
@@ -15,7 +14,6 @@
   "website": "Веб-сайт",
   "password again": "Пароль (повторно)",
   "register.login": "Вход пользователя",
-  "nickname illegal": "Пожалуйста, введите корректный псевдоним",
   "passwords don't match": "Пароли не совпадают",
   "setting": "Настройки",
   "profile": "Профиль",
@@ -23,7 +21,6 @@
   "homepage": "URL личной страницы",
   "homepage tips": "URL личной страницы должен начинаться с <1>http://</1> или <1>https://</1>.",
   "update my profile": "Обновить профиль",
-  "connect to social account": "Подключить соц. аккаунт",
   "change password": "Изменить пароль",
   "update password": "Обновить пароль",
   "password tips": "Назначьте пароль этому пользователю.<br />Рекомендуется использовать специальные символы в сочетании с буквами и цифрами для повышения безопасности.",
@@ -56,7 +53,6 @@
   "cancel": "Отмена",
   "at": "в",
   "get userinfo failed": "Не удалось получить информацию о пользователе",
-  "register success! please go to your mailbox to verify it!": "Регистрация прошла успешно! Пожалуйста, проверьте почту для подтверждения.",
   "migration": "Импорт/Экспорт",
   "exporting": "Экспорт...",
   "export": "Экспорт",
@@ -103,6 +99,5 @@
   "delete user confirm": "Вы уверены, что хотите удалить этого пользователя? Аутентифицированные пользователи будут удалены сразу, остальные будут запрещены для входа.",
   "avatar": "Avatar",
   "select": "Select",
-  "select item": "Select item",
-  "unbind": "Unbind"
+  "select item": "Select item"
 }
