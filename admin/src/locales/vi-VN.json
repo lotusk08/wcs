@@ -96,7 +96,7 @@
   "turn off 2fa": "Tắt",
   "2fa now on": "Đã bật xác minh hai bước. Mỗi lần đăng nhập bằng mật khẩu sẽ cần mã.",
   "2fa is on": "Xác minh hai bước đang bật: mỗi lần đăng nhập bằng mật khẩu sẽ hỏi mã từ ứng dụng xác thực.",
-  "show 2fa qr": "Hiện mã QR cho thiết bị khác",
+  "show 2fa qr": "Hiện mã QR",
   "hide 2fa qr": "Ẩn mã QR",
   "2fa now off": "Đã tắt xác minh hai bước.",
   "2fa setup code error": "Mã không khớp. Nhập mã hiện tại trong ứng dụng xác thực (kiểm tra giờ trên điện thoại).",

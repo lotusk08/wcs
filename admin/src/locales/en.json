@@ -96,7 +96,7 @@
   "turn off 2fa": "Turn off",
   "2fa now on": "Two-step verification is on. Every password sign-in now asks for a code.",
   "2fa is on": "Two-step verification is on: every password sign-in asks for the code from your authenticator app.",
-  "show 2fa qr": "Show QR code for another device",
+  "show 2fa qr": "Show QR code",
   "hide 2fa qr": "Hide QR code",
   "2fa now off": "Two-step verification is off.",
   "2fa setup code error": "That code didn't match. Enter the current code from your authenticator app (check the time on your phone is right).",
