@@ -687,6 +687,11 @@ const HOSTILE = [
   await tfa.locator('.act-2fa-off').waitFor({ timeout: 5000 }).catch(() => {});
   const onStatus = await api(`token/2fa?email=${encodeURIComponent(ADMIN.email)}`);
   check(5, '2FA setup with the right code turns it on and says so inline, no reload', onStatus.data?.enable === true && /is on/iu.test(await tfa.locator('.notice-success').textContent().catch(() => '')) && (await page.evaluate(() => performance.getEntriesByType('navigation').length)) === 1, await tfa.locator('.notice').textContent().catch(() => 'none'));
+  const hiddenQr = (await tfa.locator('.qr').count()) === 0 && /is on/iu.test(await tfa.locator('p').first().textContent()) && (await tfa.locator('.act-2fa-qr').getAttribute('aria-expanded')) === 'false';
+  await tfa.locator('.act-2fa-qr').click();
+  const shownQr = (await tfa.locator('.qr svg path').count()) > 0 && (await tfa.locator('.act-2fa-qr').getAttribute('aria-expanded')) === 'true';
+  await tfa.locator('.act-2fa-qr').click();
+  check(5, 'with 2FA on, the QR code (the secret) stays hidden until asked for', hiddenQr && shownQr && (await tfa.locator('.qr').count()) === 0);
   await tfa.locator('.act-2fa-off').click();
   const offSheet = page.locator('.sheet-root.is-open');
   await offSheet.locator('.act-2fa-off-confirm').waitFor({ timeout: 3000 }).catch(() => {});
@@ -1266,11 +1271,9 @@ check(6, 'no horizontal scroll at 320/360/390/414/768/1280 on every page, both t
   check(11, 'passkey API: listing and registration need the administrator', unauth.status === 401 && guestList.status === 403 && guestReg.status === 403, `${unauth.status} ${guestList.status} ${guestReg.status}`);
   check(11, 'passkey API: sign-in options say not configured without PASSKEYS', noConfig.status === 404 && (await noConfig.json()).errno === 'passkey_not_configured', String(noConfig.status));
 
-  let value = '';
   let credential = null;
   {
     const ctx = await ctxFor({ token: adminToken });
-    await ctx.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: BASE });
     const page = await open(ctx);
     const { cdp, authenticatorId } = await authenticator(page);
     await page.goto(`${BASE}/profile`);
@@ -1278,42 +1281,29 @@ check(6, 'no horizontal scroll at 320/360/390/414/768/1280 on every page, both t
     const section = page.locator('#passkeys');
     await section.locator('.muted').first().waitFor({ timeout: 5000 }).catch(() => {});
     check(11, 'profile shows a Passkeys section with none configured', (await section.count()) === 1 && /no passkeys/iu.test(await section.textContent()), (await section.textContent().catch(() => '')).slice(0, 120));
+    check(11, 'the Passkeys section has no copy-JSON or Vercel steps', !/Vercel|redeploy|Environment Variables/iu.test(await section.textContent()) && (await section.locator('textarea').count()) === 0);
     await page.fill('input[name=passkeyName]', 'E2E key');
     await section.getByRole('button', { name: 'Add passkey' }).click();
-    await page.locator('.passkey-result').waitFor({ timeout: 10000 }).catch(() => {});
-    value = await page.locator('.passkey-value').inputValue().catch(() => '');
-    let entries = [];
-    try {
-      entries = JSON.parse(value);
-    } catch {
-      entries = [];
-    }
-    check(11, 'Add passkey returns the full PASSKEYS value', entries.length === 1 && entries[0].name === 'E2E key' && entries[0].userId === String(me.objectId) && /^[\w-]+$/u.test(entries[0].publicKey) && entries[0].createdAt, value.slice(0, 120));
-    const steps = await page.locator('.passkey-steps li').allTextContents();
-    check(11, 'the result explains the Vercel steps', steps.length === 3 && /Environment Variables/u.test(steps[1]) && /PASSKEYS/u.test(steps[1]) && /Redeploy/iu.test(steps[2]), steps.join(' | '));
-    await page.locator('.passkey-result').getByRole('button', { name: 'Copy' }).click();
-    await sleep(200);
-    const clip = await page.evaluate(() => navigator.clipboard.readText()).catch(() => '');
-    check(11, 'Copy puts the PASSKEYS value on the clipboard', clip === value && (await page.locator('.passkey-result').getByRole('button', { name: 'Copied' }).count()) === 1, clip.slice(0, 60));
+    await section.locator('.passkey-status').waitFor({ timeout: 10000 }).catch(() => {});
+    const status = await section.locator('.passkey-status').textContent().catch(() => '');
+    const items = await section.locator('.passkey-item-name').allTextContents();
+    check(11, 'Add passkey saves it: success inline and the list updates at once', /E2E key.*added.*sign in with it right away/iu.test(status) && items.join(',') === 'E2E key' && (await section.locator('.passkey-item.fresh').count()) === 1 && /Not used yet/u.test(await section.locator('.passkey-item-meta').first().textContent()), `${items.join(',')} ${status}`);
+    check(11, 'no Vercel steps after adding either, and the name field is cleared', !/Vercel|redeploy|PASSKEYS/u.test(await section.textContent()) && (await page.inputValue('input[name=passkeyName]')) === '');
     await page.setViewportSize({ width: 390, height: 800 });
-    await section.screenshot({ path: shots('profile-result-390-light') });
+    await section.screenshot({ path: shots('profile-added-390-light') });
     await page.setViewportSize({ width: 1280, height: 800 });
-    await section.screenshot({ path: shots('profile-result-1280-light') });
+    const listed = await api('passkey', { token: adminToken });
+    check(11, 'the passkey is stored in the database straight away', listed.data?.storage === 'database' && listed.data.passkeys.length === 1 && listed.data.passkeys[0].name === 'E2E key' && listed.data.passkeys[0].source === 'app' && !('publicKey' in listed.data.passkeys[0]), JSON.stringify(listed.data ?? listed).slice(0, 160));
     ({ credentials: [credential] } = await cdp.send('WebAuthn.getCredentials', { authenticatorId }));
     check(11, 'the authenticator holds a discoverable credential for localhost', credential?.isResidentCredential === true && credential.rpId === 'localhost', JSON.stringify(credential ?? {}).slice(0, 120));
 
-    await setPasskeys(value);
-    await page.reload();
-    await settle(page);
-    await section.locator('.passkey-item').first().waitFor({ timeout: 5000 }).catch(() => {});
-    const items = await section.locator('.passkey-item-name').allTextContents();
-    check(11, 'after PASSKEYS is set the profile lists the passkey', items.length === 1 && items[0] === 'E2E key' && /added/iu.test(await section.locator('.passkey-item-meta').first().textContent()), items.join(','));
-
     await page.reload();
     await settle(page);
     await section.getByRole('button', { name: 'Add passkey' }).click();
-    await page.locator('#passkeys .passkey-error').waitFor({ timeout: 10000 }).catch(() => {});
-    check(11, 'adding the same device again is refused clearly', /already has a passkey/iu.test(await page.locator('#passkeys .passkey-error').textContent().catch(() => '')) && (await page.locator('.passkey-result').count()) === 0, await page.locator('#passkeys .passkey-error').textContent().catch(() => ''));
+    await section.locator('.passkey-exists').waitFor({ timeout: 10000 }).catch(() => {});
+    const exists = await section.locator('.passkey-exists').textContent().catch(() => '');
+    check(11, 'adding the same device again explains it already has a passkey you can sign in with', /already has a passkey here.*you can sign in with it/iu.test(exists) && /remove its old passkey/iu.test(exists) && (await section.locator('.passkey-error').count()) === 0 && (await section.locator('.passkey-item').count()) === 1, exists || (await section.textContent()));
+    await section.screenshot({ path: shots('profile-duplicate-1280-light') });
     check(11, 'no page errors on the profile passkey flow', !page.__console.filter((e) => !e.startsWith('Failed to load resource')).length, page.__console.join(' | '));
     await ctx.close();
   }
@@ -1328,7 +1318,7 @@ check(6, 'no horizontal scroll at 320/360/390/414/768/1280 on every page, both t
     const ctx = await ctxFor();
     const page = await open(ctx, '/login');
     const button = page.locator('.btn-passkey');
-    check(11, 'with PASSKEYS the login page offers a passkey button above the form', (await button.count()) === 1 && (await page.evaluate(() => document.querySelector('.btn-passkey').compareDocumentPosition(document.querySelector('form[name=login]')) & Node.DOCUMENT_POSITION_FOLLOWING)) > 0 && (await button.textContent()).includes('Sign in with a passkey'));
+    check(11, 'with a stored passkey (no PASSKEYS, no restart) the login page offers a passkey button above the form', (await button.count()) === 1 && (await page.evaluate(() => window.PASSKEY_ENABLED)) === true && (await page.evaluate(() => document.querySelector('.btn-passkey').compareDocumentPosition(document.querySelector('form[name=login]')) & Node.DOCUMENT_POSITION_FOLLOWING)) > 0 && (await button.textContent()).includes('Sign in with a passkey'));
     check(11, 'the email field joins passkey autofill', (await page.locator('input[name=email]').getAttribute('autocomplete')) === 'username webauthn');
     await ctx.close();
   }
@@ -1347,7 +1337,7 @@ check(6, 'no horizontal scroll at 320/360/390/414/768/1280 on every page, both t
     await page.waitForURL(`${BASE}/`, { timeout: 10000 }).catch(() => {});
     await settle(page);
     const saved = await stored(page);
-    check(11, 'passkey button signs in straight to the manager, no TOTP asked', (await loc(page)) === '/' && (await h1(page)) === 'Comments' && (await page.locator('input[name=code]').count()) === 0 && posts.join(',') === '/api/passkey/login/options,/api/passkey/login', `${await loc(page)} ${posts.join(',')} ${await notice(page)}`);
+    check(11, 'the passkey added moments ago signs in straight to the manager, no TOTP asked', (await loc(page)) === '/' && (await h1(page)) === 'Comments' && (await page.locator('input[name=code]').count()) === 0 && posts.join(',') === '/api/passkey/login/options,/api/passkey/login', `${await loc(page)} ${posts.join(',')} ${await notice(page)}`);
     check(11, 'passkey session-only login keeps the token out of localStorage', Boolean(saved.session) && !saved.local, JSON.stringify(saved));
     const who = await api('token', { token: saved.session });
     check(11, 'the passkey token is a normal Waline token for the admin', who.data?.objectId === me.objectId && who.data?.type === 'administrator');
@@ -1451,6 +1441,61 @@ check(6, 'no horizontal scroll at 320/360/390/414/768/1280 on every page, both t
     await ctx.close();
   }
 
+  const envKey = crypto.generateKeyPairSync('ec', { namedCurve: 'P-256' });
+  const envJwk = envKey.publicKey.export({ format: 'jwk' });
+  const envRawId = crypto.randomBytes(16);
+  const envCose = Buffer.concat([
+    Buffer.from([0xa5, 0x01, 0x02, 0x03, 0x26, 0x20, 0x01, 0x21, 0x58, 0x20]),
+    Buffer.from(envJwk.x, 'base64url'),
+    Buffer.from([0x22, 0x58, 0x20]),
+    Buffer.from(envJwk.y, 'base64url'),
+  ]);
+  const envCredential = {
+    credentialId: envRawId.toString('base64'),
+    isResidentCredential: true,
+    rpId: 'localhost',
+    privateKey: envKey.privateKey.export({ format: 'der', type: 'pkcs8' }).toString('base64'),
+    userHandle: Buffer.from(String(me.objectId)).toString('base64'),
+    signCount: 0,
+  };
+  const envId = envRawId.toString('base64url');
+  const profile = async (ctx) => {
+    const page = await open(ctx, '/profile');
+    await page.locator('#passkeys .passkey-item, #passkeys .muted').first().waitFor({ timeout: 5000 }).catch(() => {});
+    return page;
+  };
+  const names = (page) => page.locator('#passkeys .passkey-item-name').allTextContents();
+  const passkeySignIn = async (cred) => {
+    const ctx = await ctxFor();
+    await noAutofill(ctx);
+    const page = await open(ctx);
+    await authenticator(page, { credential: cred });
+    await page.goto(`${BASE}/login`);
+    await settle(page);
+    if (!(await page.locator('.btn-passkey').count())) {
+      await ctx.close();
+      return { at: '/login', heading: 'Login', notice: 'no passkey button', token: null };
+    }
+    await page.locator('.btn-passkey').click();
+    await Promise.race([page.waitForURL(`${BASE}/`, { timeout: 10000 }), page.locator('.notice').waitFor({ timeout: 10000 })]).catch(() => {});
+    await settle(page);
+    const result = { at: await loc(page), heading: await h1(page), notice: await notice(page), token: (await stored(page)).session };
+    await ctx.close();
+    return result;
+  };
+
+  await setPasskeys(JSON.stringify([{ id: envId, publicKey: envCose.toString('base64url'), userId: String(me.objectId), name: 'Steve Hoang', transports: ['internal'], createdAt: '2026-01-15T09:30:00.000Z' }]));
+  {
+    const ctx = await ctxFor({ token: adminToken });
+    const page = await profile(ctx);
+    const section = page.locator('#passkeys');
+    check(11, 'a PASSKEYS entry is imported and listed next to the stored passkey', (await names(page)).join(',') === 'E2E key,Steve Hoang' && /Added Jan 15, 2026/u.test(await section.locator('.passkey-item-meta').nth(1).textContent()), (await names(page)).join(','));
+    check(11, 'the section says PASSKEYS in Vercel is no longer needed', /PASSKEYS in Vercel is no longer needed.*delete the variable/iu.test(await section.locator('.passkey-hint').textContent().catch(() => '')), await section.locator('.passkey-hint').textContent().catch(() => ''));
+    await ctx.close();
+  }
+  const imported = await passkeySignIn(envCredential);
+  check(11, 'the imported PASSKEYS entry signs in', imported.at === '/' && imported.heading === 'Comments' && Boolean(imported.token), JSON.stringify(imported));
+
   {
     const overflow = [];
     for (const scheme of ['light', 'dark']) {
@@ -1464,26 +1509,119 @@ check(6, 'no horizontal scroll at 320/360/390/414/768/1280 on every page, both t
         if (width !== 320) await page.screenshot({ path: shots(`login-${width}-${scheme}`), fullPage: true });
         await ctx.close();
         const actx = await ctxFor({ width, scheme, token: adminToken });
-        const ap = await open(actx, '/profile');
-        await ap.locator('#passkeys .passkey-item').first().waitFor({ timeout: 5000 }).catch(() => {});
+        const ap = await profile(actx);
         const asw = await ap.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
         if (asw > 0) overflow.push(`profile ${width} ${scheme}`);
+        const small = await ap.evaluate(() => [...document.querySelectorAll('#passkeys button')].filter((b) => b.getBoundingClientRect().height < (innerWidth < 720 ? 44 : 40)).map((b) => b.textContent));
+        if (small.length) overflow.push(`small targets ${width} ${scheme}: ${small.join(',')}`);
         if (width !== 320) await ap.locator('#passkeys').screenshot({ path: shots(`profile-${width}-${scheme}`) });
+        await ap.locator('#passkeys .passkey-remove').last().click();
+        await ap.locator('#passkeys .passkey-confirm').waitFor({ timeout: 5000 }).catch(() => {});
+        const csw = await ap.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+        if (csw > 0) overflow.push(`confirm ${width} ${scheme}`);
+        if (width !== 320) await ap.locator('#passkeys').screenshot({ path: shots(`profile-confirm-${width}-${scheme}`) });
         await actx.close();
       }
     }
-    check(11, 'passkey button and Passkeys section fit at 320/390/1280 in both themes', overflow.length === 0, overflow.join(' | '));
+    check(11, 'passkey button and Passkeys section (2 passkeys, and the remove confirm) fit at 320/390/1280 in both themes with 44px targets on phones', overflow.length === 0, overflow.join(' | '));
   }
+
+  {
+    const ctx = await ctxFor({ token: adminToken, width: 390 });
+    const page = await profile(ctx);
+    const section = page.locator('#passkeys');
+    check(11, 'the imported passkey shows when it was last used', /Last used/u.test(await section.locator('.passkey-item-meta').nth(1).textContent()), await section.locator('.passkey-item-meta').nth(1).textContent());
+    const item = section.locator('.passkey-item').first();
+    await item.getByRole('button', { name: 'Remove E2E key' }).click();
+    const confirmBox = item.locator('.passkey-confirm[role=alertdialog]');
+    await confirmBox.waitFor({ timeout: 5000 }).catch(() => {});
+    check(11, 'Remove asks in the page, focused on the confirm button', (await confirmBox.count()) === 1 && /Remove “E2E key”\?/u.test(await confirmBox.textContent()) && (await page.evaluate(() => document.activeElement?.classList.contains('act-passkey-remove'))) && !page.__dialogs.length, await confirmBox.textContent().catch(() => ''));
+    await confirmBox.getByRole('button', { name: 'Cancel' }).click();
+    check(11, 'Cancel keeps the passkey and returns focus to its Remove button', (await section.locator('.passkey-confirm').count()) === 0 && (await names(page)).length === 2 && (await page.evaluate(() => document.activeElement?.classList.contains('passkey-remove'))));
+    await item.getByRole('button', { name: 'Remove E2E key' }).click();
+    await page.keyboard.press('Escape');
+    check(11, 'Escape closes the confirm too', (await section.locator('.passkey-confirm').count()) === 0);
+    await item.getByRole('button', { name: 'Remove E2E key' }).click();
+    await section.locator('.act-passkey-remove').click();
+    await section.locator('.passkey-status').waitFor({ timeout: 5000 }).catch(() => {});
+    check(11, 'removing a passkey updates the list at once', (await names(page)).join(',') === 'Steve Hoang' && /“E2E key” is removed/u.test(await section.locator('.passkey-status').textContent()) && !page.__dialogs.length, `${(await names(page)).join(',')} ${await section.locator('.passkey-status').textContent().catch(() => '')}`);
+    await ctx.close();
+  }
+  const removedLogin = await passkeySignIn(credential);
+  check(11, 'a removed passkey no longer signs in, with a clear message', removedLogin.at === '/login' && !removedLogin.token && /isn't set up for this site/iu.test(removedLogin.notice), JSON.stringify(removedLogin));
+
+  {
+    const ctx = await ctxFor({ token: adminToken });
+    const page = await open(ctx);
+    await authenticator(page, { credential });
+    await page.goto(`${BASE}/profile`);
+    await settle(page);
+    const section = page.locator('#passkeys');
+    await page.fill('input[name=passkeyName]', 'E2E again');
+    await section.getByRole('button', { name: 'Add passkey' }).click();
+    await section.locator('.passkey-status').waitFor({ timeout: 10000 }).catch(() => {});
+    check(11, 'once its old passkey is removed, the same device can add a new one', (await names(page)).join(',') === 'Steve Hoang,E2E again' && (await section.locator('.passkey-exists').count()) === 0, `${(await names(page)).join(',')} ${await section.textContent()}`);
+    await section.locator('.passkey-item').last().getByRole('button', { name: 'Remove E2E again' }).click();
+    await section.locator('.act-passkey-remove').click();
+    await section.locator('.passkey-item').nth(1).waitFor({ state: 'detached', timeout: 5000 }).catch(() => {});
+
+    await section.locator('.passkey-item').first().getByRole('button', { name: 'Remove Steve Hoang' }).click();
+    check(11, 'the confirm for an imported passkey says it will not be imported again', /won't be imported again/u.test(await section.locator('.passkey-confirm').textContent().catch(() => '')));
+    await section.locator('.act-passkey-remove').click();
+    await section.locator('.muted', { hasText: 'No passkeys' }).waitFor({ timeout: 5000 }).catch(() => {});
+    check(11, 'removing the imported PASSKEYS entry works and says it stays removed', (await names(page)).length === 0 && /stays removed even though PASSKEYS/u.test(await section.locator('.passkey-status').textContent().catch(() => '')), await section.textContent());
+    await page.reload();
+    await settle(page);
+    await section.locator('.muted').first().waitFor({ timeout: 5000 }).catch(() => {});
+    check(11, 'after a reload the removed PASSKEYS entry is not imported again', (await names(page)).length === 0 && /no passkeys/iu.test(await section.textContent()));
+    check(11, 'no native dialogs or page errors while removing passkeys', !page.__dialogs.length && !page.__console.filter((e) => !e.startsWith('Failed to load resource')).length, [...page.__dialogs, ...page.__console].join(' | '));
+    await ctx.close();
+  }
+  const removedEnv = await passkeySignIn(envCredential);
+  check(11, 'the removed PASSKEYS entry no longer signs in either', removedEnv.at === '/login' && !removedEnv.token && Boolean(removedEnv.notice), JSON.stringify(removedEnv));
+  const emptyOptions = await fetch(`${BASE}/api/passkey/login/options`, { method: 'POST' });
+  check(11, 'with every passkey removed, sign-in options say not configured', emptyOptions.status === 404 && (await emptyOptions.json()).errno === 'passkey_not_configured', String(emptyOptions.status));
 
   const off = await api('user', { method: 'PUT', token: adminToken, body: { '2fa': '' } });
   check(11, '2FA turned off after the passkey checks', off.errno === 0);
-  await setPasskeys('');
   {
     const ctx = await ctxFor();
     const page = await open(ctx, '/login');
-    check(11, 'removing PASSKEYS keeps the button (it no longer depends on PASSKEY_ENABLED)', (await page.locator('.btn-passkey').count()) === 1 && (await page.evaluate(() => window.PASSKEY_ENABLED)) === false);
+    check(11, 'with every passkey removed the shell reports none and the button stays', (await page.locator('.btn-passkey').count()) === 1 && (await page.evaluate(() => window.PASSKEY_ENABLED)) === false);
     await ctx.close();
   }
+  await setPasskeys('');
+}
+
+{
+  const ctx = await ctxFor({ width: 390, token: adminToken });
+  await ctx.route(`${BASE}/api/passkey?*`, (route) => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({ errno: 0, errmsg: '', data: { enabled: true, storage: 'env', notice: { errno: 'passkey_storage_error', message: 'The passkey table wl_Passkeys could not be created: CREATE command denied' }, status: 'ok', rpID: 'localhost', passkeys: [{ id: 'EnV', name: 'Old key', createdAt: '2026-01-15T00:00:00Z', lastUsedAt: '', transports: [], source: 'env', inEnv: true, mine: true }] } }),
+  }));
+  const page = await open(ctx, '/profile');
+  const section = page.locator('#passkeys');
+  const text = await section.textContent();
+  check(11, 'storage unavailable: Passkeys says why and is read-only, with no Add and no Remove', /can't save passkeys in its database/iu.test(text) && /CREATE command denied/u.test(text) && /Old key/u.test(text) && (await section.locator('.act-passkey-add').count()) === 0 && (await section.locator('.passkey-remove').count()) === 0, text.slice(0, 200));
+  await ctx.close();
+}
+
+{
+  const ip = '198.51.100.77';
+  const attempt = (password) => fetch(`${BASE}/api/token`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-real-ip': ip }, body: JSON.stringify({ email: GUEST.email, password }) });
+  for (let i = 0; i < 10; i += 1) await attempt('wrong-password');
+  const blocked = await attempt(GUEST.password);
+  check(12, 'password sign-in: 10 failures from one IP answer 429, even for the right password', blocked.status === 429 && (await blocked.json()).errno === 429 && Number(blocked.headers.get('retry-after')) > 0, String(blocked.status));
+  const ctx = await ctxFor({ width: 390 });
+  await ctx.setExtraHTTPHeaders({ 'x-real-ip': ip });
+  const page = await open(ctx, '/login');
+  await page.fill('input[name=email]', GUEST.email);
+  await page.fill('input[name=password]', GUEST.password);
+  await page.click('form[name=login] button[type=submit]');
+  await page.locator('.notice').waitFor({ timeout: 5000 }).catch(() => {});
+  check(12, 'the login page says to wait a few minutes, inline, and stays on /login', /too many attempts/iu.test(await page.locator('.notice').textContent().catch(() => '')) && (await loc(page)) === '/login');
+  await ctx.close();
 }
 
 check(12, 'no native alert/confirm/prompt dialog fired anywhere in the run', dialogs.length === 0, dialogs.slice(0, 5).join(' | '));

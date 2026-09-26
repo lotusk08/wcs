@@ -259,6 +259,7 @@ code,
 }
 
 .brand-name {
+  position: relative;
   flex-shrink: 0;
   font-family: var(--font-title);
   font-style: italic;
@@ -267,6 +268,12 @@ code,
   line-height: 1;
   color: var(--heading-color);
   white-space: nowrap;
+}
+
+.brand-name::after {
+  content: '';
+  position: absolute;
+  inset: -11px -4px;
 }
 
 .bar-title {
@@ -1071,6 +1078,7 @@ input[type='checkbox'] {
 }
 
 .seg {
+  position: relative;
   min-height: 34px;
   padding: 0 14px;
   border: 0;
@@ -1079,6 +1087,12 @@ input[type='checkbox'] {
   color: var(--text-muted-color);
   font-size: 0.86rem;
   cursor: pointer;
+}
+
+.seg::after {
+  content: '';
+  position: absolute;
+  inset: -3px -1px;
 }
 
 .seg.active,
@@ -1722,6 +1736,7 @@ input[type='checkbox'] {
 }
 
 .thread-link {
+  position: relative;
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -1730,6 +1745,12 @@ input[type='checkbox'] {
   font-family: var(--font-mono);
   font-size: 0.74rem;
   color: var(--text-muted-color);
+}
+
+.thread-link::after {
+  content: '';
+  position: absolute;
+  inset: -11px 0;
 }
 
 .thread-link span {
@@ -2527,22 +2548,38 @@ textarea.composer-input:disabled {
 }
 
 .passkey-item {
+  min-width: 0;
+  border: 1px solid var(--main-border-color);
+  border-radius: var(--radius);
+  transition: border-color 0.2s ease, background-color 0.2s ease;
+}
+
+.passkey-item.fresh {
+  border-color: var(--primary-color);
+  background: var(--primary-tint);
+}
+
+.passkey-item.confirming {
+  border-color: var(--danger);
+}
+
+.passkey-row {
   display: flex;
   align-items: center;
   gap: 12px;
   min-width: 0;
-  padding: 10px 12px;
-  border: 1px solid var(--main-border-color);
-  border-radius: var(--radius);
+  min-height: 44px;
+  padding: 8px 6px 8px 12px;
 }
 
-.passkey-item .icon {
+.passkey-row > .icon {
   flex-shrink: 0;
   color: var(--primary-color);
 }
 
 .passkey-item-text {
   display: grid;
+  flex: 1 1 auto;
   min-width: 0;
 }
 
@@ -2557,35 +2594,61 @@ textarea.composer-input:disabled {
   color: var(--text-muted-color);
 }
 
-.passkey-result {
-  display: grid;
-  gap: 12px;
-  min-width: 0;
-  margin-bottom: 14px;
-  padding: 14px;
-  border: 1px solid var(--primary-color);
+.btn.passkey-remove {
+  flex-shrink: 0;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 6px 10px;
+  color: var(--danger);
+}
+
+.passkey-item .passkey-confirm {
+  margin: 0 6px 6px;
+}
+
+.panel .passkey-confirm p {
+  margin: 0 0 14px;
+}
+
+.panel .passkey-status {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0 0 14px;
+  color: var(--heading-color);
+  outline: none;
+}
+
+.passkey-status .icon {
+  flex-shrink: 0;
+  margin-top: 2px;
+  color: var(--primary-color);
+}
+
+.passkey-note {
+  margin: 0 0 14px;
+  padding: 12px 14px;
+  border: 1px solid var(--main-border-color);
   border-radius: var(--radius);
+  background: var(--tint);
+}
+
+.passkey-note.passkey-exists {
+  border-color: var(--primary-color);
   background: var(--primary-tint);
 }
 
-.panel .passkey-result-title {
+.panel .passkey-note p {
   margin: 0;
+}
+
+.panel .passkey-note p + p {
+  margin-top: 4px;
+}
+
+.panel .passkey-note-title {
   color: var(--heading-color);
   font-weight: 600;
-}
-
-.passkey-steps {
-  display: grid;
-  gap: 6px;
-  margin: 0;
-  padding-left: 20px;
-}
-
-textarea.input.passkey-value {
-  min-height: 120px;
-  background: var(--panel-bg);
-  font-size: 0.8rem;
-  word-break: break-all;
 }
 
 .panel .passkey-error {

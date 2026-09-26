@@ -654,6 +654,73 @@ describe('registration guard', () => {
   });
 });
 
+describe('password sign-in limit', () => {
+  function serveLogin(loginLimit) {
+    const calls = [];
+    const ui = createUi({ bundlePath, env: {}, loginLimit });
+    const server = http.createServer(async (req, res) => {
+      if (await ui(req, res)) return;
+
+      let text = '';
+
+      req.setEncoding('utf8');
+      req.on('data', (c) => (text += c));
+      req.on('end', () => {
+        calls.push(req.url);
+        const ok = JSON.parse(text || '{}').password === 'right';
+
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.write(ok ? '{"errno":0,' : '{"errno":');
+        res.end(ok ? '"data":{"token":"t"}}' : '1000}');
+      });
+    });
+
+    return new Promise((resolve) => server.listen(0, '127.0.0.1', () => resolve({ server, calls, port: server.address().port })));
+  }
+
+  const attempt = (port, password, ip = '203.0.113.1', p = '/api/token') =>
+    request(port, { method: 'POST', path: p, headers: { 'content-type': 'application/json', 'x-real-ip': ip }, body: JSON.stringify({ email: 'a@b.c', password }) });
+
+  test('failed POST /api/token attempts are limited per IP, success clears them, the window ends', async () => {
+    let t = 0;
+    const ctx = await serveLogin({ limit: 3, window: 60000, now: () => t });
+    try {
+      for (let i = 0; i < 3; i += 1) assert.equal(JSON.parse((await attempt(ctx.port, 'wrong')).body).errno, 1000);
+
+      const blocked = await attempt(ctx.port, 'right');
+      assert.equal(blocked.status, 429);
+      assert.equal(blocked.headers['retry-after'], '60');
+      assert.equal(JSON.parse(blocked.body).errno, 429);
+      assert.equal(ctx.calls.length, 3);
+      assert.equal((await attempt(ctx.port, 'wrong', '203.0.113.1', '/api//token.html')).status, 429);
+      assert.equal((await attempt(ctx.port, 'right', '203.0.113.2')).status, 200);
+
+      t = 60000;
+      assert.equal(JSON.parse((await attempt(ctx.port, 'wrong')).body).errno, 1000);
+      assert.equal(JSON.parse((await attempt(ctx.port, 'wrong')).body).errno, 1000);
+      assert.equal(JSON.parse((await attempt(ctx.port, 'right')).body).errno, 0);
+      for (let i = 0; i < 2; i += 1) assert.equal((await attempt(ctx.port, 'wrong')).status, 200);
+      assert.equal((await attempt(ctx.port, 'right')).status, 200);
+    } finally {
+      ctx.server.close();
+    }
+  });
+
+  test('2FA setup, the 2FA lookup and other POSTs are not counted', async () => {
+    const ctx = await serveLogin({ limit: 1, window: 60000 });
+    try {
+      for (let i = 0; i < 3; i += 1) {
+        assert.equal((await attempt(ctx.port, 'wrong', '203.0.113.1', '/api/token/2fa')).status, 200);
+        assert.equal((await attempt(ctx.port, 'wrong', '203.0.113.1', '/api/comment')).status, 200);
+      }
+      assert.equal((await attempt(ctx.port, 'wrong')).status, 200);
+      assert.equal((await attempt(ctx.port, 'wrong')).status, 429);
+    } finally {
+      ctx.server.close();
+    }
+  });
+});
+
 describe('passkeys', () => {
   test('PASSKEY_ENABLED is true only when PASSKEYS has a valid entry, read per request', async () => {
     const env = {};
@@ -675,6 +742,18 @@ describe('passkeys', () => {
         assert.equal(res.status, 200, String(value));
         assert.equal(globalOf(res.body, 'PASSKEY_ENABLED'), want, String(value));
       }
+    } finally {
+      ctx.server.close();
+    }
+  });
+
+  test('with a passkey store, PASSKEY_ENABLED is what the store says, whatever PASSKEYS holds', async () => {
+    let stored = false;
+    const ctx = await serve({ env: { PASSKEYS: '[{"id":"a","publicKey":"b","userId":"1"}]' }, passkeyEnabled: () => stored });
+    try {
+      assert.equal(globalOf((await request(ctx.port, { path: '/login' })).body, 'PASSKEY_ENABLED'), false);
+      stored = true;
+      assert.equal(globalOf((await request(ctx.port, { path: '/login' })).body, 'PASSKEY_ENABLED'), true);
     } finally {
       ctx.server.close();
     }

@@ -16,6 +16,7 @@ export default function TwoFactorAuth() {
   const [step, setStep] = useState(1);
   const [updating, setUpdating] = useState(false);
   const [confirmOff, setConfirmOff] = useState(false);
+  const [showQr, setShowQr] = useState(false);
   const [notice, setNotice] = useState(null);
   const [codeError, setCodeError] = useState(false);
   const [data, setData] = useState({ otpauth_url: '', secret: '' });
@@ -52,6 +53,7 @@ export default function TwoFactorAuth() {
     try {
       await gen2FAToken({ code, secret: data.secret });
       dispatch.user.updateUser({ '2fa': data.secret });
+      setShowQr(false);
       setStep(1);
       setNotice({ tone: 'success', text: t('2fa now on') });
     } catch (err) {
@@ -91,21 +93,35 @@ export default function TwoFactorAuth() {
       </Notice>
       {enabled ? (
         <div>
-          <p>{t('enable 2fa')}</p>
-          <div className="qr">
-            <QRCodeSVG value={data.otpauth_url || ''} size={200} marginSize={2} />
+          <p>{t('2fa is on')}</p>
+          {showQr ? (
+            <div className="qr" id="tfa-qr">
+              <QRCodeSVG value={data.otpauth_url || ''} size={200} marginSize={2} />
+            </div>
+          ) : null}
+          <div className="form-actions">
+            <button
+              className="btn act-2fa-qr"
+              type="button"
+              aria-expanded={showQr}
+              aria-controls={showQr ? 'tfa-qr' : undefined}
+              onClick={() => setShowQr((value) => !value)}
+              disabled={!data.otpauth_url}
+            >
+              {showQr ? t('hide 2fa qr') : t('show 2fa qr')}
+            </button>
+            <button
+              className="btn btn-danger act-2fa-off"
+              type="button"
+              onClick={() => {
+                setNotice(null);
+                setConfirmOff(true);
+              }}
+              disabled={updating}
+            >
+              {t('disable 2fa')}
+            </button>
           </div>
-          <button
-            className="btn btn-danger act-2fa-off"
-            type="button"
-            onClick={() => {
-              setNotice(null);
-              setConfirmOff(true);
-            }}
-            disabled={updating}
-          >
-            {t('disable 2fa')}
-          </button>
         </div>
       ) : null}
       {!enabled && step === 1 && (
