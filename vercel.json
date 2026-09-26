@@ -19,6 +19,7 @@
         "includeFiles": [
           "admin/dist/**",
           "lib/**",
+          "widget/**",
           "node_modules/@mathjax/mathjax-newcm-font/**/*",
           "node_modules/mhchemparser/**/*"
         ]
