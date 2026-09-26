@@ -680,6 +680,18 @@ describe('passkeys', () => {
     }
   });
 
+  test('with a passkey store, PASSKEY_ENABLED is what the store says, whatever PASSKEYS holds', async () => {
+    let stored = false;
+    const ctx = await serve({ env: { PASSKEYS: '[{"id":"a","publicKey":"b","userId":"1"}]' }, passkeyEnabled: () => stored });
+    try {
+      assert.equal(globalOf((await request(ctx.port, { path: '/login' })).body, 'PASSKEY_ENABLED'), false);
+      stored = true;
+      assert.equal(globalOf((await request(ctx.port, { path: '/login' })).body, 'PASSKEY_ENABLED'), true);
+    } finally {
+      ctx.server.close();
+    }
+  });
+
   test('the passkey API is left to the next handler', async () => {
     const ctx = await serve();
     try {

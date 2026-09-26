@@ -1,8 +1,9 @@
+import cls from 'classnames';
 import React, { useEffect, useRef, useState } from 'react';
-import { Trans, useTranslation } from 'react-i18next';
+import { useTranslation } from 'react-i18next';
 
 import Icon from '../../components/icon/ui.jsx';
-import { getPasskeys, passkeyRegister, passkeyRegisterOptions } from '../../services/passkey.js';
+import { getPasskeys, passkeyRegister, passkeyRegisterOptions, removePasskey } from '../../services/passkey.js';
 import { ceremony, describePasskey, isAborted, passkeySupported, startRegistration } from '../../utils/passkey.js';
 
 const formatDate = (value, language) => {
@@ -17,28 +18,107 @@ const formatDate = (value, language) => {
   }
 };
 
-export default function Passkeys() {
+const isDuplicate = (err) => err?.code === 'ERROR_AUTHENTICATOR_PREVIOUSLY_REGISTERED' || err?.errno === 'passkey_exists';
+
+function PasskeyItem({ item, fresh, confirming, removing, onAsk, onCancel, onRemove }) {
   const { t, i18n } = useTranslation();
-  const [list, setList] = useState(null);
+  const askRef = useRef(null);
+  const confirmRef = useRef(null);
+  const wasConfirming = useRef(false);
+  const added = formatDate(item.createdAt, i18n.language);
+  const used = formatDate(item.lastUsedAt, i18n.language);
+  const textId = `passkey-confirm-${item.id}`;
+
+  useEffect(() => {
+    if (confirming) confirmRef.current?.focus();
+    else if (wasConfirming.current) askRef.current?.focus();
+    wasConfirming.current = confirming;
+  }, [confirming]);
+
+  return (
+    <li className={cls('passkey-item', { confirming, fresh })}>
+      <div className="passkey-row">
+        <Icon name="passkey" size={20} />
+        <span className="passkey-item-text">
+          <span className="passkey-item-name">{item.name}</span>
+          <span className="passkey-item-meta">
+            {[added ? t('passkey added', { date: added }) : '', used ? t('passkey last used', { date: used }) : t('passkey never used')]
+              .filter(Boolean)
+              .join(' · ')}
+          </span>
+        </span>
+        {confirming ? null : (
+          <button
+            ref={askRef}
+            type="button"
+            className="btn btn-quiet passkey-remove"
+            aria-label={t('remove passkey named', { name: item.name })}
+            onClick={onAsk}
+          >
+            <Icon name="trash" size={18} />
+            <span>{t('remove')}</span>
+          </button>
+        )}
+      </div>
+      {confirming ? (
+        <div
+          className="confirm-box passkey-confirm"
+          role="alertdialog"
+          aria-labelledby={textId}
+          onKeyDown={(event) => {
+            if (event.key === 'Escape') onCancel();
+          }}
+        >
+          <p id={textId}>
+            {t('remove passkey confirm', { name: item.name })}
+            {item.inEnv ? ` ${t('passkey remove env note')}` : ''}
+          </p>
+          <div className="confirm-actions">
+            <button type="button" className="btn" onClick={onCancel} disabled={removing}>
+              {t('cancel')}
+            </button>
+            <button
+              ref={confirmRef}
+              type="button"
+              className="btn btn-danger btn-solid act-passkey-remove"
+              onClick={onRemove}
+              disabled={removing}
+            >
+              <Icon name="trash" size={18} />
+              <span>{removing ? t('loading') : t('remove')}</span>
+            </button>
+          </div>
+        </div>
+      ) : null}
+    </li>
+  );
+}
+
+export default function Passkeys() {
+  const { t } = useTranslation();
+  const [data, setData] = useState(null);
   const [adding, setAdding] = useState(false);
-  const [result, setResult] = useState(null);
+  const [confirmId, setConfirmId] = useState(null);
+  const [removing, setRemoving] = useState(false);
+  const [status, setStatus] = useState(null);
+  const [exists, setExists] = useState(false);
   const [error, setError] = useState('');
-  const [copied, setCopied] = useState(false);
-  const valueRef = useRef(null);
+  const statusRef = useRef(null);
   const supported = passkeySupported();
+  const list = data ? data.passkeys : null;
+  const envOnly = data?.storage === 'env';
 
   useEffect(() => {
     let alive = true;
 
     getPasskeys().then(
-      (data) => {
+      (next) => {
         if (!alive) return;
-        setList(Array.isArray(data.passkeys) ? data.passkeys : []);
-        if (data.status === 'invalid') setError(t('passkey env invalid'));
+        setData({ ...next, passkeys: Array.isArray(next.passkeys) ? next.passkeys : [] });
       },
       () => {
         if (!alive) return;
-        setList([]);
+        setData({ passkeys: [] });
         setError(t('passkey list error'));
       },
     );
@@ -48,13 +128,7 @@ export default function Passkeys() {
     };
   }, [t]);
 
-  useEffect(() => {
-    if (!copied) return undefined;
-
-    const timer = setTimeout(() => setCopied(false), 1800);
-
-    return () => clearTimeout(timer);
-  }, [copied]);
+  const update = (next) => setData({ ...next, passkeys: Array.isArray(next.passkeys) ? next.passkeys : [] });
 
   const onAdd = async (event) => {
     event.preventDefault();
@@ -66,34 +140,48 @@ export default function Passkeys() {
 
     setAdding(true);
     setError('');
+    setExists(false);
+    setStatus(null);
+    setConfirmId(null);
 
     try {
       const { options, challengeToken } = await passkeyRegisterOptions();
       const response = await ceremony(() => startRegistration({ optionsJSON: options }), options.timeout);
-      const data = await passkeyRegister({ challengeToken, response, name });
+      const next = await passkeyRegister({ challengeToken, response, name });
 
       form.reset();
-      setCopied(false);
-      setResult(data);
+      update(next);
+      setStatus({ kind: 'added', id: next.entry?.id, name: next.entry?.name ?? '' });
     } catch (err) {
-      if (!isAborted(err)) setError(describePasskey(t, err, { register: true }));
+      if (isDuplicate(err)) setExists(true);
+      else if (!isAborted(err)) setError(describePasskey(t, err, { register: true }));
     } finally {
       setAdding(false);
     }
   };
 
-  const onCopy = async () => {
-    const value = result?.value ?? '';
+  const onRemove = async (item) => {
+    if (removing) return;
+
+    setRemoving(true);
+    setError('');
 
     try {
-      await navigator.clipboard.writeText(value);
-      setCopied(true);
-    } catch {
-      const field = valueRef.current;
+      const next = await removePasskey(item.id);
 
-      field?.focus();
-      field?.select();
-      setCopied(document.execCommand?.('copy') === true);
+      update(next);
+      setConfirmId(null);
+      setExists(false);
+      setStatus({ kind: 'removed', name: item.name, stillInEnv: next.stillInEnv === true });
+      requestAnimationFrame(() => statusRef.current?.focus());
+    } catch (err) {
+      setError(err?.errno === 'passkey_unknown' ? t('passkey already removed') : t('passkey remove failed'));
+      if (err?.errno === 'passkey_unknown') {
+        setConfirmId(null);
+        getPasskeys().then(update, () => {});
+      }
+    } finally {
+      setRemoving(false);
     }
   };
 
@@ -102,63 +190,56 @@ export default function Passkeys() {
       <h2 className="panel-title">{t('passkeys')}</h2>
       <p>{t('passkeys description')}</p>
 
+      {envOnly ? (
+        <div className="passkey-note" role="note">
+          <p>{t('passkey storage env')}</p>
+          {data.notice?.message ? <p className="field-hint">{data.notice.message}</p> : null}
+        </div>
+      ) : null}
+
       {list === null ? (
         <p className="muted">{t('loading')}</p>
       ) : list.length ? (
         <ul className="passkey-list">
           {list.map((item) => (
-            <li key={item.id} className="passkey-item">
-              <Icon name="passkey" size={20} />
-              <span className="passkey-item-text">
-                <span className="passkey-item-name">{item.name}</span>
-                <span className="passkey-item-meta">
-                  {formatDate(item.createdAt, i18n.language)
-                    ? t('passkey added', { date: formatDate(item.createdAt, i18n.language) })
-                    : t('passkey')}
-                </span>
-              </span>
-            </li>
+            <PasskeyItem
+              key={item.id}
+              item={item}
+              fresh={status?.kind === 'added' && status.id === item.id}
+              confirming={confirmId === item.id}
+              removing={removing && confirmId === item.id}
+              onAsk={() => {
+                setConfirmId(item.id);
+                setError('');
+              }}
+              onCancel={() => setConfirmId(null)}
+              onRemove={() => onRemove(item)}
+            />
           ))}
         </ul>
       ) : (
         <p className="muted">{t('no passkeys')}</p>
       )}
 
-      {result ? (
-        <div className="passkey-result" role="status">
-          <p className="passkey-result-title">{t('passkey created')}</p>
-          <ol className="passkey-steps">
-            <li>{t('passkey step copy')}</li>
-            <li>
-              <Trans i18nKey="passkey step vercel" components={{ code: <code />, b: <strong /> }} />
-            </li>
-            <li>{t('passkey step redeploy')}</li>
-          </ol>
-          <label className="field">
-            <span className="field-label">
-              <code>PASSKEYS</code>
-            </span>
-            <textarea
-              ref={valueRef}
-              readOnly
-              className="input mono passkey-value"
-              value={result.value}
-              rows={5}
-              spellCheck={false}
-              onFocus={(event) => event.currentTarget.select()}
-            />
-          </label>
-          <div className="form-actions">
-            <button type="button" className="btn btn-primary" onClick={onCopy}>
-              <Icon name={copied ? 'check' : 'copy'} size={18} />
-              <span aria-live="polite">{copied ? t('copied') : t('copy')}</span>
-            </button>
-            <button type="button" className="btn" onClick={() => setResult(null)}>
-              {t('done')}
-            </button>
-          </div>
+      {status ? (
+        <p ref={statusRef} tabIndex={-1} className="passkey-status" role="status">
+          <Icon name="check" size={18} />
+          <span>
+            {status.kind === 'added'
+              ? t('passkey saved', { name: status.name })
+              : `${t('passkey removed', { name: status.name })}${status.stillInEnv ? ` ${t('passkey removed env')}` : ''}`}
+          </span>
+        </p>
+      ) : null}
+
+      {exists ? (
+        <div className="passkey-note passkey-exists" role="alert">
+          <p className="passkey-note-title">{t('passkey exists')}</p>
+          <p>{t('passkey exists replace')}</p>
         </div>
-      ) : (
+      ) : null}
+
+      {envOnly ? null : (
         <form method="post" name="passkey" className="form passkey-add" onSubmit={onAdd}>
           <label className="field">
             <span className="field-label">{t('passkey name')}</span>
@@ -172,7 +253,7 @@ export default function Passkeys() {
             />
           </label>
           <div className="form-actions">
-            <button type="submit" className="btn btn-primary" disabled={adding || !supported}>
+            <button type="submit" className="btn btn-primary act-passkey-add" disabled={adding || !supported || list === null}>
               <Icon name="passkey" size={18} />
               <span>{adding ? t('loading') : t('add passkey')}</span>
             </button>
@@ -187,9 +268,10 @@ export default function Passkeys() {
         </p>
       ) : null}
 
-      <p className="field-hint passkey-hint">
-        <Trans i18nKey="passkey remove hint" components={{ code: <code /> }} />
-      </p>
+      {data?.status === 'invalid' ? <p className="field-hint passkey-hint">{t('passkey env invalid')}</p> : null}
+      {!envOnly && list?.some((item) => item.inEnv) ? (
+        <p className="field-hint passkey-hint">{t('passkey env imported')}</p>
+      ) : null}
     </section>
   );
 }

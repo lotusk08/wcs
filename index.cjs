@@ -6,6 +6,7 @@ const Application = require('@waline/vercel');
 
 const { createAvatar } = require('./lib/avatar.cjs');
 const { createPasskey } = require('./lib/passkey.cjs');
+const { createPasskeyStore } = require('./lib/passkey-store.cjs');
 const { createUi } = require('./lib/ui.cjs');
 
 const avatarUrl = createAvatar();
@@ -16,9 +17,18 @@ const waline = Application({
   async postSave() {},
 });
 
-const ui = createUi({ bundlePath: path.join(__dirname, 'admin', 'dist', 'admin.js') });
+const store = createPasskeyStore({
+  type: think.config('storage'),
+  model: () => think.model('Passkeys'),
+});
+
+const ui = createUi({
+  bundlePath: path.join(__dirname, 'admin', 'dist', 'admin.js'),
+  passkeyEnabled: () => store.peekEnabled(),
+});
 
 const passkey = createPasskey({
+  store,
   jwtKey: () => think.config('jwtKey'),
   async findUser(objectId) {
     const users = await think.service(`storage/${think.config('storage')}`, 'Users').select({ objectId });

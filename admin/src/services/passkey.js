@@ -6,6 +6,8 @@ export const passkeyRegisterOptions = () => request({ url: 'passkey/register/opt
 
 export const passkeyRegister = (body) => request({ url: 'passkey/register', method: 'POST', body });
 
+export const removePasskey = (id) => request({ url: `passkey/${encodeURIComponent(id)}`, method: 'DELETE' });
+
 export const passkeyLoginOptions = () =>
   request({ url: 'passkey/login/options', method: 'POST', auth: false, body: {} });
 
