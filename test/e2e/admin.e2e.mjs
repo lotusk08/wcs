@@ -1,9 +1,11 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
+import { createRequire } from 'node:module';
 import path from 'node:path';
 
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || 'playwright');
+const speakeasy = createRequire(import.meta.url)('speakeasy');
 
 const BASE = process.env.BASE || 'http://localhost:8360';
 const OUT = process.env.E2E_OUT || path.join(os.tmpdir(), 'wcs-e2e');
@@ -99,16 +101,13 @@ async function login(page, email, password, path = '/login') {
   await settle(page);
 }
 
-async function register(page, nick, email, password) {
-  await page.goto(`${BASE}/register`);
-  await settle(page);
-  await page.fill('input[name=nick]', nick);
-  await page.fill('input[name=email]', email);
-  await page.fill('input[name=password]', password);
-  await page.fill('input[name=password-again]', password);
-  await page.click('form[name=register] button[type=submit]');
-  await sleep(800);
-  await settle(page);
+async function register(nick, email, password) {
+  const resp = await fetch(`${BASE}/__register`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ display_name: nick, email, password, url: '' }),
+  });
+  return resp.json();
 }
 
 async function openAccount(page) {
@@ -144,7 +143,7 @@ const GUEST = { nick: 'Guest', email: 'guest@example.com', password: 'Guest-pass
   check(1, '404 view links home', (await loc(page)) === '/' && (await h1(page)) === 'Login', await loc(page));
   const unknown = await fetch(`${BASE}/nope/deep`);
   check(1, 'unknown server path is a Waline 404 (no crash)', unknown.status === 404, String(unknown.status));
-  for (const [from, to] of [['/ui', '/'], ['/ui/login', '/login'], ['/ui/profile?token=x', '/login?redirect=%2Fprofile']]) {
+  for (const [from, to] of [['/ui', '/'], ['/ui/login', '/login'], ['/ui/profile?token=x', '/login?redirect=%2Fprofile'], ['/register', '/login'], ['/register?redirect=%2Fuser', '/login?redirect=%2Fuser'], ['/ui/register', '/login']]) {
     await page.goto(BASE + from);
     await settle(page);
     const at = await loc(page);
@@ -160,8 +159,12 @@ let adminToken;
 {
   const ctx = await ctxFor();
   const page = await open(ctx);
-  await register(page, ADMIN.nick, ADMIN.email, ADMIN.password);
-  check(2, 'register first user lands on /login', (await loc(page)).startsWith('/login'), `${await loc(page)} dialogs=${page.__dialogs.join(';')}`);
+  const closed = await fetch(`${BASE}/api/user`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ display_name: 'Intruder', email: 'intruder@example.com', password: 'Intruder-1', url: '' }) });
+  check(2, 'public sign-up (POST /api/user) refused while ALLOW_REGISTER is off', closed.status === 403 && (await closed.json()).errno === 403, String(closed.status));
+  const seeded = await register(ADMIN.nick, ADMIN.email, ADMIN.password);
+  check(2, 'first account seeded through the local ALLOW_REGISTER hook', seeded.errno === 0, JSON.stringify(seeded));
+  const intruder = await api('token', { method: 'POST', body: { email: 'intruder@example.com', password: 'Intruder-1' } });
+  check(2, 'the refused sign-up created no account', intruder.errno !== 0, JSON.stringify(intruder));
   await login(page, ADMIN.email, ADMIN.password);
   check(2, 'admin login lands on comment manager at /', (await loc(page)) === '/' && (await h1(page)) === 'Comments', `${await loc(page)} ${await h1(page)}`);
   adminToken = await page.evaluate(() => sessionStorage.getItem('TOKEN'));
@@ -194,18 +197,16 @@ let adminToken;
   const relay = new URL(page.url());
   check(2, 'OAuth return leg (/login?redirect=<blog>&token=) relays to the blog with token', relay.origin === 'https://stevehoang.com' && relay.pathname === '/posts/x' && relay.searchParams.get('token') === adminToken, page.url().replace(/token=[^&]+/u, 'token=…'));
   const lp = await open(await ctxFor(), `/login?redirect=${encodeURIComponent('https://stevehoang.com/posts/x')}`);
-  const social = new URL(await lp.locator('.social-btn').first().getAttribute('href'));
-  const ret = social.searchParams.get('redirect');
-  check(2, 'social login button returns via /login?redirect=<blog>', ret === `${BASE}/login?redirect=${encodeURIComponent('https://stevehoang.com/posts/x')}`, ret);
-  const leg = await fetch(social.href, { redirect: 'manual' });
-  check(2, 'server accepts that oauth redirect', leg.status === 302, `${leg.status} ${leg.headers.get('location')}`);
-  const lp2 = await open(lp.context(), '/login?redirect=%2Fuser');
-  const ret2 = new URL(await lp2.locator('.social-btn').first().getAttribute('href')).searchParams.get('redirect');
-  check(2, 'social login keeps a local redirect', ret2 === `${BASE}/user`, ret2);
+  check(2, 'login page shows no social login and no sign-up link', (await lp.locator('.social-login, .social-btn, a[href*="oauth"]').count()) === 0 && (await lp.locator('a[href^="/register"]').count()) === 0 && (await lp.locator('form[name=login]').count()) === 1);
+  check(2, 'shell lists no OAuth services', (await lp.evaluate(() => JSON.stringify(window.oauthServices))) === '[]');
   await lp.context().close();
+  for (const type of ['qq', 'weibo', 'github', 'twitter', 'facebook']) {
+    const r = await fetch(`${BASE}/api/oauth?type=${type}&redirect=${encodeURIComponent(`${BASE}/`)}`, { redirect: 'manual' });
+    check(2, `/api/oauth?type=${type} refused`, r.status === 404 && !r.headers.get('location'), `${r.status} ${r.headers.get('location')}`);
+  }
   for (const bad of ['https://evil.com/', '//evil.com', 'javascript:alert(1)']) {
-    const r = await fetch(`${BASE}/api/oauth?type=github&redirect=${encodeURIComponent(bad)}`, { redirect: 'manual' });
-    check(2, `server refuses oauth redirect ${bad}`, r.status === 400, String(r.status));
+    const r = await fetch(`${BASE}/oauth?type=github&redirect=${encodeURIComponent(bad)}`, { redirect: 'manual' });
+    check(2, `server refuses legacy /oauth redirect ${bad}`, r.status === 404, String(r.status));
   }
   const shellResp = await fetch(`${BASE}/`);
   const cspHeader = shellResp.headers.get('content-security-policy') ?? '';
@@ -224,7 +225,7 @@ let guestToken;
 {
   const ctx = await ctxFor();
   const page = await open(ctx);
-  await register(page, GUEST.nick, GUEST.email, GUEST.password);
+  await register(GUEST.nick, GUEST.email, GUEST.password);
   await login(page, GUEST.email, GUEST.password);
   guestToken = await page.evaluate(() => sessionStorage.getItem('TOKEN'));
   const me = await api('token', { token: guestToken });
@@ -590,6 +591,7 @@ const HOSTILE = [
   const ctx = await ctxFor({ token: adminToken });
   const page = await open(ctx, '/profile');
   check(5, 'profile renders for admin', (await h1(page)) === 'Settings');
+  check(5, 'profile offers no social account linking', (await page.locator('#social-account, .account-item, a[href*="oauth"]').count()) === 0);
   await page.fill('input[name=screenName]', 'Steve Edited');
   await page.fill('input[name=url]', 'https://stevehoang.com/about');
   await page.locator('.panel', { hasText: 'Profile' }).locator('button[type=submit]').first().click();
@@ -634,7 +636,7 @@ const HOSTILE = [
 }
 
 {
-  await api('user', { method: 'POST', body: { display_name: 'Third', email: 'third@example.com', password: 'Third-pass-1', url: '' } });
+  await register('Third', 'third@example.com', 'Third-pass-1');
   const ctx = await ctxFor({ token: adminToken });
   const page = await open(ctx, '/user');
   const row = (name) => page.locator('.user-row', { hasText: name });
@@ -749,7 +751,7 @@ const HOSTILE = [
   await dctx.close();
 }
 
-const pagesLoggedOut = ['/', '/login', '/register', '/forgot', '/nope'];
+const pagesLoggedOut = ['/', '/login', '/forgot', '/nope'];
 const pagesAdmin = ['/', '/?view=posts', `/thread?path=${encodeURIComponent('/posts/convo/')}`, '/profile', '/user', '/migration'];
 const pagesGuest = ['/profile'];
 const overflow = [];
@@ -797,6 +799,197 @@ check(6, 'no horizontal scroll at 320/360/390/414/768/1280 on every page, both t
   check(7, 'language picker switches to Vietnamese', (await h1(ap)) === 'Quản lý bình luận', await h1(ap));
   await ap.locator('.lang-select select').selectOption('en-US');
   await actx.close();
+}
+
+{
+  const PASSWORD = 'New-pass-22';
+  const notice = (page) => page.locator('.notice').textContent().catch(() => '');
+  const stored = (page) => page.evaluate(() => ({ session: sessionStorage.getItem('TOKEN'), local: localStorage.getItem('TOKEN') }));
+  const tokenPosts = (page) => {
+    const list = [];
+    page.on('request', (r) => r.method() === 'POST' && new URL(r.url()).pathname === '/api/token' && list.push(r.url()));
+    return list;
+  };
+  const fillLogin = async (page, email, password) => {
+    await page.fill('input[name=email]', email);
+    await page.fill('input[name=password]', password);
+  };
+
+  {
+    const ctx = await ctxFor();
+    const page = await open(ctx, '/login');
+    const attrs = await page.evaluate(() => ['email', 'password'].map((n) => document.querySelector(`input[name=${n}]`).getAttribute('autocomplete')));
+    check(10, 'login inputs are autofill-friendly', attrs[0] === 'username' && attrs[1] === 'current-password' && (await page.locator('input[name=email]').getAttribute('type')) === 'email', attrs.join(','));
+    const posts = tokenPosts(page);
+    await fillLogin(page, ADMIN.email, 'Wrong-pass-1');
+    await page.click('form[name=login] button[type=submit]');
+    await page.locator('.notice').waitFor({ timeout: 5000 }).catch(() => {});
+    const text = await notice(page);
+    check(10, 'wrong password shows a clear error and stays on /login', /wrong email or password/iu.test(text) && (await loc(page)) === '/login' && !(await stored(page)).session, text);
+    check(10, 'button is usable again after a failure', !(await page.locator('form[name=login] button[type=submit]').isDisabled()));
+    check(10, 'wrong password sent one request', posts.length === 1, String(posts.length));
+    const bad = await open(ctx, '/login');
+    await fillLogin(bad, 'not-an-email', 'x');
+    await bad.click('form[name=login] button[type=submit]');
+    await sleep(200);
+    check(10, 'malformed email is caught before the server', /valid email/iu.test(await notice(bad)), await notice(bad));
+
+    posts.length = 0;
+    await fillLogin(page, ADMIN.email, PASSWORD);
+    await page.locator('input[name=password]').press('Enter');
+    await page.keyboard.press('Enter').catch(() => {});
+    await page.waitForURL(`${BASE}/`, { timeout: 5000 }).catch(() => {});
+    await settle(page);
+    check(10, 'Enter submits; a double Enter sends one login request', (await loc(page)) === '/' && (await h1(page)) === 'Comments' && posts.length === 1, `${await loc(page)} posts=${posts.length}`);
+    check(10, 'header shows the account right after login, no reload', (await page.locator('.me-name').textContent().catch(() => '')) === 'Steve Edited' && (await page.evaluate(() => performance.getEntriesByType('navigation').length)) === 1);
+    const session = await stored(page);
+    check(10, 'session-only login keeps the token out of localStorage', Boolean(session.session) && !session.local, JSON.stringify(session));
+    await page.reload();
+    await settle(page);
+    check(10, 'session-only login survives a reload of the tab', (await h1(page)) === 'Comments');
+    const other = await open(ctx, '/');
+    check(10, 'session-only login is not shared with a new tab', (await h1(other)) === 'Login', await h1(other));
+    await other.close();
+    await logout(page);
+    const after = await stored(page);
+    check(10, 'logout clears the token and the header at once', !after.session && !after.local && (await page.locator('.me').count()) === 0 && (await h1(page)) === 'Login', JSON.stringify(after));
+    await ctx.close();
+  }
+
+  {
+    const ctx = await ctxFor();
+    const page = await open(ctx, '/login');
+    await fillLogin(page, ADMIN.email, PASSWORD);
+    await page.check('input[name=remember]');
+    await page.click('form[name=login] button[type=submit]');
+    await page.waitForURL(`${BASE}/`, { timeout: 5000 }).catch(() => {});
+    await settle(page);
+    const saved = await stored(page);
+    check(10, 'remember me stores the token in localStorage', Boolean(saved.local) && saved.local === saved.session, JSON.stringify(saved));
+    const other = await open(ctx, '/');
+    check(10, 'remembered login carries to a new tab', (await h1(other)) === 'Comments', await h1(other));
+    await other.reload();
+    await settle(other);
+    check(10, 'remembered login survives reload', (await h1(other)) === 'Comments');
+    await logout(other);
+    const cleared = await stored(other);
+    check(10, 'logout clears the remembered token too', !cleared.local && !cleared.session, JSON.stringify(cleared));
+    const again = await open(ctx, '/');
+    check(10, 'after logout a new tab is logged out', (await h1(again)) === 'Login');
+    await ctx.close();
+  }
+
+  {
+    const ctx = await ctxFor({ token: 'not-a-token' });
+    const page = await open(ctx, '/profile');
+    const navs = [];
+    page.on('framenavigated', (f) => f === page.mainFrame() && navs.push(f.url()));
+    await sleep(800);
+    const text = await notice(page);
+    const left = await stored(page);
+    check(10, 'invalid token on load: logged out cleanly with a notice, no loop', (await loc(page)) === '/login?redirect=%2Fprofile' && /session has expired/iu.test(text) && !left.session && navs.length === 0, `${await loc(page)} ${text} navs=${navs.length}`);
+    await ctx.close();
+    const lctx = await ctxFor({ storage: { TOKEN: 'stale' } });
+    const lp = await open(lctx, '/');
+    check(10, 'stale remembered token is dropped', (await h1(lp)) === 'Login' && !(await stored(lp)).local);
+    await lctx.close();
+  }
+
+  {
+    const ctx = await ctxFor();
+    const page = await open(ctx, `/login?token=${adminToken}`);
+    check(10, '?token= on /login lands signed in on / with the token stripped', (await loc(page)) === '/' && (await h1(page)) === 'Comments' && !page.url().includes('token='), page.url());
+    await page.goto(`${BASE}/profile?token=${adminToken}&x=1`);
+    await settle(page);
+    check(10, '?token= on another page keeps the rest of the query', (await loc(page)) === '/profile?x=1' && (await h1(page)) === 'Settings', await loc(page));
+    await ctx.close();
+  }
+
+  const setup = await api('token/2fa', { token: adminToken });
+  const secret = setup.data?.secret;
+  const totp = (offset = 0) => speakeasy.totp({ secret, encoding: 'base32', time: Math.floor(Date.now() / 1000) + offset });
+  const valid = new Set([-90, -60, -30, 0, 30, 60, 90].map(totp));
+  let wrong = 0;
+  while (valid.has(String(wrong).padStart(6, '0'))) wrong += 1;
+  const WRONG = String(wrong).padStart(6, '0');
+  const enabled = await api('token/2fa', { method: 'POST', token: adminToken, body: { code: totp(), secret } });
+  const status = await api(`token/2fa?email=${encodeURIComponent(ADMIN.email)}`);
+  check(10, '2FA enabled for the admin', enabled.errno === 0 && status.data?.enable === true, JSON.stringify(enabled));
+
+  {
+    const ctx = await ctxFor();
+    const page = await open(ctx, '/login');
+    const posts = tokenPosts(page);
+    await page.evaluate(({ email, password }) => {
+      const set = (el, value) => {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(el, value);
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+      };
+      set(document.querySelector('input[name=email]'), email);
+      set(document.querySelector('input[name=password]'), password);
+    }, { email: ADMIN.email, password: PASSWORD });
+    await page.click('form[name=login] button[type=submit]');
+    await page.locator('input[name=code]').waitFor({ timeout: 5000 }).catch(() => {});
+    await sleep(300);
+    const codeInput = page.locator('input[name=code]');
+    const focused = await page.evaluate(() => document.activeElement?.name);
+    check(10, '2FA account: submit without a code asks for it and sends no login', (await codeInput.count()) === 1 && posts.length === 0 && /two-step verification/iu.test(await notice(page)) && focused === 'code', `posts=${posts.length} focus=${focused} ${await notice(page)}`);
+    check(10, '2FA code input is numeric one-time-code', (await codeInput.getAttribute('inputmode')) === 'numeric' && (await codeInput.getAttribute('autocomplete')) === 'one-time-code');
+    await page.click('form[name=login] button[type=submit]');
+    await sleep(300);
+    check(10, '2FA: empty code is refused without a request', posts.length === 0 && /verification code/iu.test(await notice(page)), await notice(page));
+    await codeInput.fill(WRONG);
+    await page.click('form[name=login] button[type=submit]');
+    await sleep(800);
+    check(10, '2FA: wrong code shows an error and stays logged out', posts.length === 1 && /verification code/iu.test(await notice(page)) && (await loc(page)) === '/login' && !(await stored(page)).session && (await codeInput.inputValue()) === '', `${posts.length} ${await notice(page)}`);
+    await page.fill('input[name=password]', PASSWORD);
+    const code = totp();
+    await codeInput.fill(`${code.slice(0, 3)} ${code.slice(3)}`);
+    await codeInput.press('Enter');
+    await page.waitForURL(`${BASE}/`, { timeout: 5000 }).catch(() => {});
+    await settle(page);
+    check(10, '2FA: correct code (typed with a space) logs in', (await loc(page)) === '/' && (await h1(page)) === 'Comments' && posts.length === 2, `${await loc(page)} posts=${posts.length}`);
+    await ctx.close();
+  }
+
+  {
+    const ctx = await ctxFor();
+    const blog = await ctx.newPage();
+    await blog.goto('https://stevehoang.com/posts/x');
+    await blog.evaluate(() => {
+      window.__messages = [];
+      addEventListener('message', (e) => window.__messages.push({ origin: e.origin, data: e.data }));
+    });
+    const [popup] = await Promise.all([ctx.waitForEvent('page'), blog.evaluate((url) => window.open(url, 'login'), `${BASE}/login`)]);
+    popup.on('dialog', (d) => d.accept());
+    await settle(popup);
+    await fillLogin(popup, ADMIN.email, PASSWORD);
+    await popup.locator('input[name=email]').blur();
+    await popup.locator('input[name=code]').waitFor({ timeout: 5000 }).catch(() => {});
+    await popup.fill('input[name=code]', totp());
+    await popup.click('form[name=login] button[type=submit]');
+    await sleep(1200);
+    const messages = await blog.evaluate(() => window.__messages);
+    const info = messages.find((m) => m.data?.type === 'userInfo');
+    check(10, 'blog popup: opener gets userInfo with the token from the admin origin', info && info.origin === new URL(BASE).origin && typeof info.data.data.token === 'string' && info.data.data.email === ADMIN.email, JSON.stringify(messages).slice(0, 200));
+    check(10, 'blog popup: the 2FA secret and password never reach the blog', info && !('2fa' in info.data.data) && !('password' in info.data.data), info ? Object.keys(info.data.data).join(',') : 'none');
+    await ctx.close();
+  }
+
+  const off = await api('user', { method: 'PUT', token: adminToken, body: { '2fa': '' } });
+  const offStatus = await api(`token/2fa?email=${encodeURIComponent(ADMIN.email)}`);
+  check(10, '2FA turned off again', off.errno === 0 && offStatus.data?.enable === false);
+
+  {
+    const ctx = await ctxFor();
+    const page = await open(ctx, '/forgot');
+    await page.fill('input[name=email]', 'nobody@example.com');
+    await page.click('form[name=forgot] button[type=submit]');
+    await page.locator('.notice').waitFor({ timeout: 5000 }).catch(() => {});
+    check(10, 'forgot password without mail service reports the failure', /reset password email/iu.test(await notice(page)) && (await loc(page)) === '/forgot', await notice(page));
+    check(10, 'no page errors in the login flows', !page.__console.filter((e) => !e.startsWith('Failed to load resource')).length, page.__console.join(' | '));
+    await ctx.close();
+  }
 }
 
 check(8, 'no CSP violations across the whole run', cspViolations.length === 0, [...new Set(cspViolations)].slice(0, 5).join(' | '));

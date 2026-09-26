@@ -3,7 +3,6 @@
   "comment": "留言",
   "login": "登入",
   "logout": "登出",
-  "register": "使用者註冊",
   "email": "信箱",
   "password": "密碼",
   "remember me": "下次自動登入",
@@ -15,7 +14,6 @@
   "website": "個人網站",
   "password again": "再次輸入密碼",
   "register.login": "使用者登入",
-  "nickname illegal": "請輸入正確的暱稱",
   "passwords don't match": "兩次密碼不一致",
   "setting": "個人設定",
   "profile": "個人資料",
@@ -23,7 +21,6 @@
   "homepage": "個人首頁網址",
   "homepage tips": "此使用者的個人首頁網址, 請用 <1>http://</1> 或 <1>https://</1> 開頭.",
   "update my profile": "更新我的檔案",
-  "connect to social account": "帳號綁定",
   "change password": "密碼修改",
   "update password": "更新密碼",
   "password tips": "為此使用者指定一個密碼.<br />建議使用特殊符號與字母、數字的混合格式,以增加系統安全性.",
@@ -56,7 +53,6 @@
   "cancel": "取消",
   "at": "於",
   "get userinfo failed": "取得使用者資料失敗",
-  "register success! please go to your mailbox to verify it!": "註冊成功！請到你的個人信箱中確認註冊資訊！",
   "migration": "匯入匯出",
   "exporting": "匯出中...",
   "export": "匯出",
@@ -103,6 +99,5 @@
   "delete user confirm": "你確定要刪除這個使用者嗎？處於認證狀態的使用者會被直接刪除，其他使用者會被禁止登入。",
   "avatar": "頭像",
   "select": "選擇",
-  "select item": "選擇項目",
-  "unbind": "解除綁定"
+  "select item": "選擇項目"
 }

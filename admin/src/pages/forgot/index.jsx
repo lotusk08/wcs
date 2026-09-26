@@ -25,10 +25,16 @@ export default function Forgot() {
     event.preventDefault();
     setError(false);
 
+    if (submitting) return;
+
     const email = event.currentTarget.email.value.trim();
 
     if (!email) {
       return setError(t('please input email'));
+    }
+
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/u.test(email)) {
+      return setError(t('please input a valid email'));
     }
 
     try {
@@ -36,8 +42,8 @@ export default function Forgot() {
       await dispatch.user.forgot({ email });
       alert(t('find password success! please go to your mailbox to reset it!'));
       navigate(`/login${search}`);
-    } catch {
-      setError(t('find password error! try again later'));
+    } catch (err) {
+      setError(err?.errno === 'network' ? t('network error') : t('find password error! try again later'));
     } finally {
       setSubmitting(false);
     }
@@ -51,13 +57,22 @@ export default function Forgot() {
         <form method="post" name="forgot" className="form" onSubmit={onSubmit} noValidate>
           <label className="field">
             <span className="field-label">{t('email')}</span>
-            <input type="email" name="email" autoComplete="email" className="input" />
+            <input
+              type="email"
+              name="email"
+              autoComplete="email"
+              inputMode="email"
+              autoCapitalize="none"
+              spellCheck={false}
+              required
+              className="input"
+            />
             <span className="field-hint">
               {t('you will receive an email which contains a link to create new password')}
             </span>
           </label>
           <button type="submit" disabled={submitting} className="btn btn-primary btn-block">
-            {t('get new password')}
+            {submitting ? t('loading') : t('get new password')}
           </button>
         </form>
 

@@ -1,10 +1,9 @@
 import request from '../utils/request.js';
 
-export const get2FAToken = (email) => {
-  const query = email ? `?email=${encodeURIComponent(email)}` : '';
+export const get2FAToken = () => request({ url: 'token/2fa', method: 'GET' });
 
-  return request({ url: `token/2fa${query}`, method: 'GET' });
-};
+export const get2FAStatus = (email) =>
+  request({ url: `token/2fa?email=${encodeURIComponent(email)}`, method: 'GET', auth: false });
 
 export const gen2FAToken = (data) => request({ url: 'token/2fa', method: 'POST', body: data });
 

@@ -23,15 +23,25 @@ if (!fs.existsSync(db)) {
 
 const port = Number(process.env.PORT) || 8360;
 
-process.env.OAUTH_URL ||= `http://127.0.0.1:${port}/__oauth`;
-
 const handler = require(path.join(root, 'index.cjs'));
 
 http
   .createServer((req, res) => {
-    if (req.url === '/__oauth') {
-      res.writeHead(200, { 'content-type': 'application/json' });
-      return res.end('{"services":[{"name":"github"}]}');
+    if (req.url === '/__register' && req.method === 'POST') {
+      const allow = process.env.ALLOW_REGISTER;
+
+      process.env.ALLOW_REGISTER = 'true';
+      req.url = '/api/user';
+      const pending = handler(req, res);
+
+      if (allow === undefined) delete process.env.ALLOW_REGISTER;
+      else process.env.ALLOW_REGISTER = allow;
+
+      return Promise.resolve(pending).catch((err) => {
+        console.error(err);
+        if (!res.headersSent) res.writeHead(500);
+        res.end();
+      });
     }
     req.headers['x-forwarded-proto'] ||= 'http';
     Promise.resolve(handler(req, res)).catch((err) => {

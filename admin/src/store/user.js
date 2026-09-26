@@ -1,6 +1,16 @@
-import { forgot, getUserInfo, login, logout, register } from '../services/auth.js';
+import { forgot, getUserInfo, login, logout, saveToken } from '../services/auth.js';
 import { updateProfile } from '../services/user.js';
-import { getToken, postToOpener, storage } from '../utils/site.js';
+import { getToken, postToOpener, publicUser, storage } from '../utils/site.js';
+
+let sessionExpired = false;
+
+export const takeSessionExpired = () => {
+  const expired = sessionExpired;
+
+  sessionExpired = false;
+
+  return expired;
+};
 
 export const user = {
   state: null,
@@ -14,42 +24,44 @@ export const user = {
   },
   effects: (dispatch) => ({
     async loadUserInfo() {
-      if (!getToken()) {
+      const token = getToken();
+
+      if (!token) {
         return;
       }
 
-      const user = await getUserInfo();
+      let user;
+
+      try {
+        user = await getUserInfo();
+      } catch (err) {
+        if (err?.errno === 'network' || err?.status >= 500) return;
+        user = null;
+      }
 
       if (!user?.objectId) {
         logout();
+        sessionExpired = true;
 
         return;
       }
 
-      const remember = Boolean(storage.get('localStorage', 'TOKEN'));
+      const remember = storage.get('localStorage', 'TOKEN') === token;
 
-      postToOpener({ type: 'userInfo', data: { token: getToken(), remember, ...user } });
+      postToOpener({ type: 'userInfo', data: { ...publicUser(user), token, remember } });
 
       return dispatch.user.setUser(user);
     },
     async login({ email, password, code, remember, recaptchaV3, turnstile }) {
-      const { token, ...user } = await login({
-        email,
-        password,
-        code,
-        recaptchaV3,
-        turnstile,
-      });
+      const { token, ...user } = await login({ email, password, code, recaptchaV3, turnstile });
 
-      if (token) {
-        window.TOKEN = token;
-        storage.set('sessionStorage', 'TOKEN', token);
-        if (remember) {
-          storage.set('localStorage', 'TOKEN', token);
-        }
-
-        postToOpener({ type: 'userInfo', data: { token, remember, ...user } });
+      if (!token || !user.objectId) {
+        throw new Error('login failed');
       }
+
+      saveToken(token, remember);
+      sessionExpired = false;
+      postToOpener({ type: 'userInfo', data: { ...publicUser(user), token, remember } });
 
       return dispatch.user.setUser(user);
     },
@@ -57,16 +69,13 @@ export const user = {
       logout();
       dispatch.user.setUser(null);
     },
-    async register(user) {
-      return register(user);
-    },
     async forgot(user) {
       return forgot(user);
     },
     async updateProfile(data) {
       await updateProfile(data);
 
-      postToOpener({ type: 'profile', data });
+      postToOpener({ type: 'profile', data: publicUser(data) });
 
       return dispatch.user.updateUser(data);
     },

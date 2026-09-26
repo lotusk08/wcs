@@ -5,14 +5,12 @@ import { useSelector } from 'react-redux';
 
 import Avatar from '../../components/Avatar.jsx';
 import BottomSheet from '../../components/BottomSheet.jsx';
-// oxlint-disable-next-line import/no-namespace
-import * as Icons from '../../components/icon';
 import Icon from '../../components/icon/ui.jsx';
 import Layout from '../../components/Layout.jsx';
 import Notice from '../../components/Notice.jsx';
 import Paginator from '../../components/Paginator.jsx';
 import { deleteUser, getUserList, updateUser } from '../../services/user.js';
-import { SOCIALS, externalLink } from '../../utils/site.js';
+import { externalLink } from '../../utils/site.js';
 
 function UserSheet({ open, user, actions, onClose, onLabel }) {
   const { t } = useTranslation();
@@ -237,35 +235,6 @@ export default function User() {
               </div>
               <div className="user-email">
                 <a href={`mailto:${user.email}`}>{user.email}</a>
-              </div>
-              <div className="account-list small">
-                {SOCIALS.map((social) => {
-                  // oxlint-disable-next-line import/namespace
-                  const SocialIcon = Icons[social];
-
-                  if (!SocialIcon) return null;
-
-                  return user[social] && social !== 'oidc' ? (
-                    <a
-                      key={social}
-                      href={`https://${social}.com/${user[social]}`}
-                      target="_blank"
-                      rel="noreferrer"
-                      className={cls('account-item', social, 'bind')}
-                      title={social}
-                    >
-                      <SocialIcon className="social-icon" aria-hidden="true" />
-                    </a>
-                  ) : (
-                    <span
-                      key={social}
-                      className={cls('account-item', social, { bind: user[social] })}
-                      title={social}
-                    >
-                      <SocialIcon className="social-icon" aria-hidden="true" />
-                    </span>
-                  );
-                })}
               </div>
             </div>
             <button

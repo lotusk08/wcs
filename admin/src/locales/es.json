@@ -3,7 +3,6 @@
   "comment": "Comentario",
   "login": "Iniciar sesión",
   "logout": "Cerrar sesión",
-  "register": "Registro de usuario",
   "email": "Correo electrónico",
   "password": "Contraseña",
   "remember me": "Recordarme",
@@ -15,7 +14,6 @@
   "website": "Sitio web",
   "password again": "Contraseña (repetir)",
   "register.login": "Inicio de sesión",
-  "nickname illegal": "Por favor, ingrese un apodo válido",
   "passwords don't match": "Las contraseñas no coinciden",
   "setting": "Configuración",
   "profile": "Perfil",
@@ -23,7 +21,6 @@
   "homepage": "URL de la página personal",
   "homepage tips": "La URL de la página personal debe comenzar con <1>http://</1> o <1>https://</1>.",
   "update my profile": "Actualizar perfil",
-  "connect to social account": "Conectar cuenta social",
   "change password": "Cambiar contraseña",
   "update password": "Actualizar contraseña",
   "password tips": "Asigne una contraseña a este usuario.<br />Se recomienda usar una combinación de caracteres especiales, letras y números para mayor seguridad.",
@@ -56,7 +53,6 @@
   "cancel": "Cancelar",
   "at": "en",
   "get userinfo failed": "Error al obtener información del usuario",
-  "register success! please go to your mailbox to verify it!": "¡Registro exitoso! Por favor, revise su correo para verificar.",
   "migration": "Importar/Exportar",
   "exporting": "Exportando...",
   "export": "Exportar",
@@ -103,6 +99,5 @@
   "delete user confirm": "¿Está seguro de que desea eliminar este usuario? Los usuarios verificados se eliminarán directamente, otros serán bloqueados para iniciar sesión.",
   "avatar": "Avatar",
   "select": "Select",
-  "select item": "Select item",
-  "unbind": "Unbind"
+  "select item": "Select item"
 }

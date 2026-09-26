@@ -1,20 +1,11 @@
-import cls from 'classnames';
 import React, { useState } from 'react';
 import { Trans, useTranslation } from 'react-i18next';
 import { useDispatch, useSelector } from 'react-redux';
 
 import Avatar from '../../components/Avatar.jsx';
 import Layout from '../../components/Layout.jsx';
-// oxlint-disable-next-line import/no-namespace
-import * as Icons from '../../components/icon';
 import { updateProfile } from '../../services/user.js';
-import { API_BASE, SOCIALS, getToken } from '../../utils/site.js';
 import TwoFactorAuth from './twoFactorAuth.jsx';
-
-const unbind = async (type) => {
-  await updateProfile({ [type]: '' });
-  location.reload();
-};
 
 export default function Profile() {
   const [isPasswordUpdating, setPasswordUpdating] = useState(false);
@@ -92,9 +83,6 @@ export default function Profile() {
     }
   };
 
-  const linkURL = (social) =>
-    `${API_BASE}oauth?type=${encodeURIComponent(social)}&state=${encodeURIComponent(getToken() ?? '')}&redirect=${encodeURIComponent(`${location.origin}/profile`)}`;
-
   return (
     <Layout title={t('setting')}>
       <div className="profile">
@@ -146,49 +134,6 @@ export default function Profile() {
               </div>
             </form>
           </section>
-
-          {SOCIALS.length ? (
-            <section className="panel" id="social-account">
-              <h2 className="panel-title">{t('connect to social account')}</h2>
-              <div className="account-list">
-                {SOCIALS.map((social) => {
-                  // oxlint-disable-next-line import/namespace
-                  const Icon = Icons[social];
-                  const bound = Boolean(user[social]);
-
-                  return (
-                    <div key={social} className={cls('account-item', social, { bind: bound })}>
-                      <a
-                        href={
-                          bound
-                            ? social === 'oidc'
-                              ? undefined
-                              : `https://${social}.com/${user[social]}`
-                            : linkURL(social)
-                        }
-                        target={bound ? '_blank' : '_self'}
-                        rel="noreferrer"
-                        title={social}
-                      >
-                        {Icon ? <Icon className="social-icon" aria-hidden="true" /> : social}
-                      </a>
-                      {bound ? (
-                        <button
-                          type="button"
-                          className="account-unbind"
-                          aria-label={`${t('unbind')} ${social}`}
-                          title={t('unbind')}
-                          onClick={() => unbind(social)}
-                        >
-                          ×
-                        </button>
-                      ) : null}
-                    </div>
-                  );
-                })}
-              </div>
-            </section>
-          ) : null}
 
           <section className="panel" id="change-password">
             <h2 className="panel-title">{t('change password')}</h2>

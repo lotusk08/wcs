@@ -3,7 +3,6 @@
   "comment": "Komentar",
   "login": "Masuk",
   "logout": "Keluar",
-  "register": "Daftar",
   "email": "Email",
   "password": "Kata Sandi",
   "remember me": "Ingat saya",
@@ -15,7 +14,6 @@
   "website": "Situs Web Pribadi",
   "password again": "Ulangi Kata Sandi",
   "register.login": "Masuk",
-  "nickname illegal": "Nama panggilan tidak valid!",
   "passwords don't match": "Kata sandi tidak cocok",
   "setting": "Pengaturan",
   "profile": "Profil",
@@ -23,7 +21,6 @@
   "homepage": "Beranda",
   "homepage tips": "Beranda pengguna saat ini. Harus dimulai dengan <1>http://</1> atau <1>https://</1>.",
   "update my profile": "Perbarui profil saya",
-  "connect to social account": "Hubungkan ke Akun Sosial",
   "change password": "Ubah Kata Sandi",
   "update password": "Perbarui kata sandi",
   "password tips": "Disarankan menggunakan kombinasi karakter khusus, huruf, dan angka untuk meningkatkan keamanan sistem.",
@@ -56,7 +53,6 @@
   "cancel": "Batal",
   "at": "Pada",
   "get userinfo failed": "Gagal mendapatkan info pengguna!",
-  "register success! please go to your mailbox to verify it!": "Pendaftaran berhasil! Silakan cek kotak masuk email Anda untuk verifikasi!",
   "migration": "Migrasi",
   "exporting": "Mengekspor...",
   "export": "Ekspor",
@@ -103,6 +99,5 @@
   "delete user confirm": "Apakah Anda yakin ingin menghapus pengguna ini? Pengguna terverifikasi akan langsung dihapus, sementara pengguna lain akan dilarang masuk.",
   "avatar": "Avatar",
   "select": "Select",
-  "select item": "Select item",
-  "unbind": "Unbind"
+  "select item": "Select item"
 }

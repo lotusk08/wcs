@@ -1,4 +1,4 @@
-import { TRUSTED_ORIGINS, getToken, safePath } from './site.js';
+import { TRUSTED_ORIGINS, getToken } from './site.js';
 
 const trustedExternal = (value) => {
   if (typeof value !== 'string' || !/^https?:\/\//iu.test(value)) return null;
@@ -23,8 +23,3 @@ export const externalReturn = (value) => {
 
   return url.href;
 };
-
-export const oauthReturn = (value) =>
-  trustedExternal(value)
-    ? `${location.origin}/login?redirect=${encodeURIComponent(value)}`
-    : `${location.origin}${safePath(value) ?? '/profile'}`;

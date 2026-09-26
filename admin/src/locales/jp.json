@@ -3,7 +3,6 @@
   "comment": "コメント",
   "login": "ログイン",
   "logout": "ログアウト",
-  "register": "ユーザー登録",
   "email": "メール",
   "password": "パスワード",
   "remember me": "次回自動ログイン",
@@ -15,7 +14,6 @@
   "website": "ウェブサイト",
   "password again": "パスワード（再入力）",
   "register.login": "ユーザーログイン",
-  "nickname illegal": "有効なニックネームを入力してください",
   "passwords don't match": "パスワードが一致しません",
   "setting": "設定",
   "profile": "プロフィール",
@@ -23,7 +21,6 @@
   "homepage": "ホームページURL",
   "homepage tips": "このユーザーのホームページのURLは、<1>http://</1> または <1>https://</1> で始めてください。",
   "update my profile": "プロフィールを更新",
-  "connect to social account": "ソーシャルアカウント連携",
   "change password": "パスワード変更",
   "update password": "パスワードを更新",
   "password tips": "このユーザーのためにパスワードを設定します。<br />セキュリティ向上のため、記号と英字・数字を組み合わせたパスワードを推奨します。",
@@ -56,7 +53,6 @@
   "cancel": "キャンセル",
   "at": "に",
   "get userinfo failed": "ユーザー情報の取得に失敗しました",
-  "register success! please go to your mailbox to verify it!": "登録に成功しました！確認メールを受信ボックスで確認してください。",
   "migration": "インポート/エクスポート",
   "exporting": "エクスポート中...",
   "export": "エクスポート",
@@ -103,6 +99,5 @@
   "delete user confirm": "このユーザーを本当に削除しますか？認証済みのユーザーは即座に削除され、その他のユーザーはログインが禁止されます。",
   "avatar": "Avatar",
   "select": "Select",
-  "select item": "Select item",
-  "unbind": "Unbind"
+  "select item": "Select item"
 }
