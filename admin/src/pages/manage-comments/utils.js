@@ -1,9 +1,8 @@
-import { SITE_NAME, SITE_URL, postLink, siteLink } from '../../utils/site.js';
+import { SITE_NAME, postLink, siteLink } from '../../utils/site.js';
 
 const AVATAR_PROXY = typeof window.AVATAR_PROXY === 'string' ? window.AVATAR_PROXY.trim() : '';
 
-export const DEFAULT_AVATAR =
-  (typeof window.DEFAULT_AVATAR === 'string' && window.DEFAULT_AVATAR.trim()) || `${SITE_URL}/assets/img/site/cat-avatar.png`;
+export const GUEST_AVATAR = 'https://stevehoang.com/assets/img/cat.webp';
 
 export const buildAvatar = (avatar = '') => {
   const value = String(avatar ?? '').trim();

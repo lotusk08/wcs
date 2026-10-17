@@ -36,10 +36,10 @@ const watchDialogs = (page) => {
 };
 const cspViolations = [];
 const imageRequests = [];
-const PROXY = process.env.AVATAR_PROXY || 'https://avatar.example/proxy';
-const CAT = 'https://stevehoang.com/assets/img/site/cat-avatar.png';
+const CAT = 'https://stevehoang.com/assets/img/cat.webp';
 const md5 = (value) => crypto.createHash('md5').update(value).digest('hex');
-const proxied = (url) => `${PROXY}?url=${encodeURIComponent(url)}`;
+const PROXY = ((raw) => (raw ? JSON.parse(raw) : ''))((await (await fetch(`${BASE}/`)).text()).match(/window\.AVATAR_PROXY = ("(?:[^"\\]|\\.)*");/u)?.[1]);
+const proxied = (url) => (PROXY ? `${PROXY}?url=${encodeURIComponent(url)}` : url);
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
 
 async function ctxFor({ token, width = 1280, scheme = 'light', locale = 'en-US', storage, cat = false } = {}) {
@@ -212,7 +212,7 @@ let adminToken;
   check(2, '/login?redirect=<blog>&token= signs in here and relays nothing to the blog', relay.origin === new URL(BASE).origin && relay.pathname === '/' && !page.url().includes('token=') && (await h1(page)) === 'Comments', page.url().replace(/token=[^&]+/u, 'token=…'));
   const lp = await open(await ctxFor(), `/login?redirect=${encodeURIComponent('https://stevehoang.com/posts/x')}`);
   check(2, 'login page shows no social login and no sign-up link', (await lp.locator('.social-login, .social-btn, a[href*="oauth"]').count()) === 0 && (await lp.locator('a[href^="/register"]').count()) === 0 && (await lp.locator('form[name=login]').count()) === 1);
-  check(2, 'shell sets none of the retired globals (oauthServices, ALLOWED_ORIGINS, PASSKEY_ENABLED)', await lp.evaluate(() => ['oauthServices', 'ALLOWED_ORIGINS', 'PASSKEY_ENABLED'].every((key) => !(key in window))));
+  check(2, 'shell sets none of the retired globals (oauthServices, ALLOWED_ORIGINS, PASSKEY_ENABLED, DEFAULT_AVATAR)', await lp.evaluate(() => ['oauthServices', 'ALLOWED_ORIGINS', 'PASSKEY_ENABLED', 'DEFAULT_AVATAR'].every((key) => !(key in window))));
   await lp.context().close();
   for (const type of ['qq', 'weibo', 'github', 'twitter', 'facebook']) {
     const r = await fetch(`${BASE}/api/oauth?type=${type}&redirect=${encodeURIComponent(`${BASE}/`)}`, { redirect: 'manual' });
@@ -441,9 +441,16 @@ const HOSTILE = [
   await page.locator('.bulkbar .bulk-cancel').click();
   const realErrors = page.__console.filter((e) => !e.startsWith('Failed to load resource'));
   check(4, 'no native dialogs or page errors in manager (404s are hostile <img src=x>)', !realErrors.length && page.__bad404.every((u) => u === `${BASE}/x`) && !page.__dialogs.length, [...realErrors, ...new Set(page.__bad404), ...page.__dialogs].join(' | '));
-  const readerAvatars = new Set(Array.from({ length: 40 }, (_, i) => proxied(`https://example.test/a/${md5(`reader${i + 1}@example.com`)}`)));
-  check(9, 'comment avatars use the server template through AVATAR_PROXY', imageRequests.some((u) => readerAvatars.has(u)), imageRequests.filter((u) => u.includes('example.test')).slice(0, 2).join(' '));
-  check(9, 'no hard-coded libravatar/gravatar fallback requested', !imageRequests.some((u) => /libravatar|gravatar/u.test(u)), imageRequests.filter((u) => /libravatar|gravatar/u.test(u)).slice(0, 2).join(' '));
+  const listed = (await api('comment?type=list&owner=all&page=1&pageSize=100', { token: adminToken })).data.data;
+  const guests = listed.filter((c) => !c.user_id);
+  const ownReply = listed.find((c) => c.orig === 'Thanks from the admin');
+  const ownFallback = new URL(`https://seccdn.libravatar.org/avatar/${md5(ADMIN.email)}`);
+  ownFallback.searchParams.set('d', CAT);
+  check(9, `every guest comment's avatar is the cat on stevehoang.com${PROXY ? ', through AVATAR_PROXY' : ''}`, guests.length > 30 && guests.every((c) => c.avatar === proxied(CAT)) && imageRequests.includes(proxied(CAT)), [...new Set(guests.map((c) => c.avatar))].join(' '));
+  check(9, "the owner's own comment, with no profile avatar yet, keeps libravatar for their email with the cat as its fallback", ownReply?.avatar === proxied(ownFallback.href), ownReply?.avatar);
+  const guestHashes = [...new Set(guests.map((c) => c.mail).filter(Boolean))].map((mail) => md5(mail.trim().toLowerCase()));
+  const guestLookups = imageRequests.filter((u) => /qlogo/u.test(u) || guestHashes.some((h) => u.includes(h)));
+  check(9, 'no libravatar, gravatar or QQ request for a guest commenter', guestHashes.length > 30 && guestLookups.length === 0, guestLookups.slice(0, 2).join(' '));
   await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
   await sleep(800);
   const broken = await page.evaluate(() => [...document.querySelectorAll('img.avatar')].filter((img) => img.complete && !img.naturalWidth).length);
@@ -637,7 +644,9 @@ const HOSTILE = [
   await sleep(300);
   const avatarSrcs = await page.evaluate(() => [...document.querySelectorAll('.profile-avatar, .me-avatar')].map((el) => el.getAttribute('src')));
   const changed = await api('token', { token: adminToken });
-  check(9, 'profile avatar change shows the new (proxied) URL immediately', imageRequests.includes(proxied('https://img.example/me.png')) && changed.data.avatar === proxied('https://img.example/me.png') && /avatar updated/iu.test(await page.locator('.profile-card .notice').textContent().catch(() => '')), `${avatarSrcs.join(' ')} server=${changed.data.avatar}`);
+  check(9, `profile avatar change shows the new URL${PROXY ? ' (proxied)' : ''} immediately`, imageRequests.includes(proxied('https://img.example/me.png')) && changed.data.avatar === proxied('https://img.example/me.png') && /avatar updated/iu.test(await page.locator('.profile-card .notice').textContent().catch(() => '')), `${avatarSrcs.join(' ')} server=${changed.data.avatar}`);
+  const ownNow = (await api('comment?type=list&owner=mine&page=1', { token: adminToken })).data.data.find((c) => c.orig === 'Thanks from the admin');
+  check(9, "the owner's comments show their profile avatar once it is set", ownNow?.avatar === proxied('https://img.example/me.png'), ownNow?.avatar);
   check(9, 'avatar change without reload', (await page.evaluate(() => performance.getEntriesByType('navigation').length)) === 1 && (await h1(page)) === 'Settings');
   const pw = page.locator('#change-password');
   await pw.locator('input[name=password]').fill('New-pass-22');

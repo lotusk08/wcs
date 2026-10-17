@@ -50,6 +50,8 @@ const globalOf = (body, key) => {
   return line && new Function(`return ${line.split(' = ').slice(1).join(' = ').replace(/;\s*$/u, '')}`)();
 };
 
+const globalNames = (body) => [...body.matchAll(/^\s*window\.(\w+) = /gmu)].map((m) => m[1]);
+
 const KEY = 'test-jwt-key';
 const tokenFor = (id) => jwt.sign(String(id), KEY);
 
@@ -89,7 +91,7 @@ describe('ui router', () => {
         assert.equal(globalOf(res.body, 'turnstileKey'), undefined);
         assert.equal(globalOf(res.body, 'serverURL'), 'https://line.stevehoang.com/api/');
         assert.equal(globalOf(res.body, 'AVATAR_PROXY'), undefined);
-        assert.equal(globalOf(res.body, 'DEFAULT_AVATAR'), undefined);
+        assert.deepEqual(globalNames(res.body), ['SITE_URL', 'SITE_NAME', 'recaptchaV3Key', 'turnstileKey', 'serverURL', 'AVATAR_PROXY']);
       });
     }
   }
@@ -445,12 +447,12 @@ describe('environment and origin', () => {
     }
   });
 
-  test('DEFAULT_AVATAR is passed to the admin and escaped', async () => {
+  test('AVATAR_PROXY is escaped; DEFAULT_AVATAR is no longer read', async () => {
     const evil = 'https://cdn.example/cat.webp?</script><script>alert(1)</script>';
     const ctx = await serve({ env: { DEFAULT_AVATAR: evil, AVATAR_PROXY: 'https://p.example/?a=<b>' } });
     try {
       const res = await request(ctx.port, { path: '/' });
-      assert.equal(globalOf(res.body, 'DEFAULT_AVATAR'), evil);
+      assert.equal(globalOf(res.body, 'DEFAULT_AVATAR'), undefined);
       assert.equal(globalOf(res.body, 'AVATAR_PROXY'), 'https://p.example/?a=<b>');
       assert.ok(!res.body.includes('<script>alert'));
       assert.ok(!res.body.includes('<b>'));

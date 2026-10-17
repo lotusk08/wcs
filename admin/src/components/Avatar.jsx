@@ -1,13 +1,13 @@
 import cls from 'classnames';
 import { useState } from 'react';
 
-import { DEFAULT_AVATAR, buildAvatar } from '../pages/manage-comments/utils.js';
+import { GUEST_AVATAR, buildAvatar } from '../pages/manage-comments/utils.js';
 
 export default function Avatar({ src, size = 32, alt = '', className }) {
   const url = buildAvatar(src);
   const [failed, setFailed] = useState([]);
   const own = url && !failed.includes(url) ? url : '';
-  const shown = own || (failed.includes(DEFAULT_AVATAR) ? '' : DEFAULT_AVATAR);
+  const shown = own || (failed.includes(GUEST_AVATAR) ? '' : GUEST_AVATAR);
 
   if (!shown) {
     return <span className={cls('avatar', 'avatar-blank', className)} role={alt ? 'img' : undefined} aria-label={alt || undefined} aria-hidden={alt ? undefined : 'true'} />;
