@@ -2,7 +2,9 @@ import { createInstance } from 'i18next';
 import LanguageDetector from 'i18next-browser-languagedetector';
 import { initReactI18next } from 'react-i18next';
 
-import langs from './locales/index.js';
+import langs, { LANGUAGE_OPTIONS } from './locales/index.js';
+
+const CODES = new Map(LANGUAGE_OPTIONS.flatMap(({ code, alias }) => alias.map((name) => [name.toLowerCase(), code])));
 
 const i18n = createInstance();
 
@@ -17,6 +19,7 @@ i18n.use(LanguageDetector)
       order: ['querystring', 'localStorage'],
       lookupQuerystring: 'lng',
       caches: ['localStorage'],
+      convertDetectedLanguage: (lng) => CODES.get(String(lng).toLowerCase()) ?? 'en',
     },
 
     ns: ['translations'],

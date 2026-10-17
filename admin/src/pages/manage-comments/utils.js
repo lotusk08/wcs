@@ -90,17 +90,14 @@ export const formatDate = (time) => {
   return `${localDate} ${localTime}`;
 };
 
-const LOCALES = { jp: 'ja' };
-
 const UNITS = [
   ['minute', 60, 60],
   ['hour', 3600, 24],
   ['day', 86_400, 7],
 ];
 
-export const relativeDate = (time, language = 'en', now = Date.now()) => {
+export const relativeDate = (time, locale = 'en', now = Date.now()) => {
   const date = parseDate(time);
-  const locale = LOCALES[language] ?? language;
   const seconds = Math.max(0, (now - date.getTime()) / 1000);
 
   if (Number.isNaN(seconds)) return '';

@@ -896,6 +896,13 @@ check(6, 'no horizontal scroll at 320/360/390/414/768/1280 on every page, both t
   await settle(page);
   check(7, 'chosen language remembered', (await h1(page)) === '登录', await h1(page));
   await ctx.close();
+  for (const [lng, want, stored] of [['zh-cn', '登录', 'zh-CN'], ['VI-vn', 'Đăng nhập', 'vi-VN'], ['vi', 'Đăng nhập', 'vi-VN'], ['EN-us', 'Login', 'en']]) {
+    const lctx = await ctxFor();
+    const lp = await open(lctx, `/login?lng=${lng}`);
+    const kept = await lp.evaluate(() => localStorage.getItem('i18nextLng'));
+    check(7, `?lng=${lng} is matched whatever its case (stored as ${stored})`, (await h1(lp)) === want && kept === stored, `${await h1(lp)} stored=${kept}`);
+    await lctx.close();
+  }
   const actx = await ctxFor({ locale: 'vi-VN', token: adminToken });
   const ap = await open(actx, '/');
   await openAccount(ap);
@@ -903,7 +910,19 @@ check(6, 'no horizontal scroll at 320/360/390/414/768/1280 on every page, both t
   await sleep(300);
   check(7, 'language picker switches to Vietnamese', (await h1(ap)) === 'Quản lý bình luận', await h1(ap));
   await ap.locator('.lang-select select').selectOption('en-US');
+  check(7, 'the language picker offers only Chinese (Simplified), English and Vietnamese', (await ap.locator('.lang-select select option').allTextContents()).join(',') === '中文简体,English,Tiếng Việt', (await ap.locator('.lang-select select option').allTextContents()).join(','));
   await actx.close();
+  for (const stored of ['de', 'zh-TW', 'jp']) {
+    const rctx = await ctxFor({ token: adminToken, storage: { i18nextLng: stored } });
+    const rp = await open(rctx);
+    const langs = [];
+    rp.on('request', (r) => new URL(r.url()).pathname.startsWith('/api/') && langs.push(new URL(r.url()).searchParams.get('lang')));
+    await rp.goto(`${BASE}/`);
+    await settle(rp);
+    const now = await rp.evaluate(() => localStorage.getItem('i18nextLng'));
+    check(7, `a stored choice of a removed language (${stored}) falls back to English: text, API lang and the stored choice`, (await h1(rp)) === 'Comments' && langs.length > 0 && langs.every((l) => l === 'en') && now === 'en', `${await h1(rp)} lang=${[...new Set(langs)].join(',')} stored=${now}`);
+    await rctx.close();
+  }
 }
 
 {
