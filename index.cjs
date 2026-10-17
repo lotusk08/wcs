@@ -11,7 +11,7 @@ const { createUi } = require('./lib/ui.cjs');
 
 const avatarUrl = createAvatar();
 
-const waline = Application({
+const line = Application({
   plugins: [],
   avatarUrl,
   async postSave() {},
@@ -43,5 +43,5 @@ module.exports = async (req, res) => {
   if (await ui(req, res)) return;
   if (await passkey(req, res)) return;
 
-  return waline(req, res);
+  return line(req, res);
 };
