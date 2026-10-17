@@ -140,8 +140,7 @@ export default function Header({ title }) {
   const inThread = location.pathname === '/thread';
   const navItems = [
     { to: '/', label: t('comments'), short: t('comments'), icon: 'comments', end: true },
-    { to: '/user', label: t('user'), short: t('users'), icon: 'users' },
-    { to: '/migration', label: t('migration'), short: t('import export'), icon: 'transfer' },
+    { to: '/migration', label: t('migration'), short: t('export'), icon: 'transfer' },
     { to: '/profile', label: t('setting'), short: t('profile'), icon: 'profile' },
   ];
 

@@ -137,7 +137,7 @@ const GUEST = { nick: 'Guest', email: 'guest@example.com', password: 'Guest-pass
   const ctx = await ctxFor();
   const page = await open(ctx, '/');
   check(1, '/ renders login at /', (await loc(page)) === '/' && (await h1(page)) === 'Login', `${await loc(page)} h1=${await h1(page)}`);
-  for (const p of ['/profile', '/user', '/migration']) {
+  for (const p of ['/profile', '/migration']) {
     await page.goto(BASE + p);
     await settle(page);
     const at = await loc(page);
@@ -183,7 +183,7 @@ let adminToken;
   await logout(page);
   check(2, 'logout returns to login at /', (await loc(page)) === '/' && (await h1(page)) === 'Login', await loc(page));
   const cases = [
-    ['/user', '/login?redirect=%2Fuser', '/user'],
+    ['/migration', '/login?redirect=%2Fmigration', '/migration'],
     ['evil', '/login?redirect=https%3A%2F%2Fevil.com%2Fx', '/'],
     ['proto-rel', '/login?redirect=%2F%2Fevil.com', '/'],
     ['backslash', '/login?redirect=%2F%5Cevil.com', '/'],
@@ -241,7 +241,7 @@ let guestToken;
   const me = await api('token', { token: guestToken });
   check(3, 'second user is guest', me.data?.type === 'guest', me.data?.type);
   check(3, 'guest login lands on /profile', (await loc(page)) === '/profile', await loc(page));
-  for (const p of ['/', '/user', '/migration']) {
+  for (const p of ['/', '/migration']) {
     await page.goto(BASE + p);
     await settle(page);
     check(3, `guest ${p} -> /profile`, (await loc(page)) === '/profile', await loc(page));
@@ -709,118 +709,35 @@ const HOSTILE = [
 }
 
 {
-  await register('Third', 'third@example.com', 'Third-pass-1');
   const ctx = await ctxFor({ token: adminToken });
-  const page = await open(ctx, '/user');
-  const row = (name) => page.locator('.user-row', { hasText: name });
-  const sheet = page.locator('.sheet-root.is-open');
-  const act = async (name, key) => {
-    await row(name).locator('.act-more').click();
-    await sheet.locator(`.act-${key}`).click();
-  };
-  const closeSheet = async () => {
-    await page.keyboard.press('Escape');
-    await page.locator('.sheet-root').waitFor({ state: 'detached' });
-  };
-  check(5, 'user list shows 3 users', (await page.locator('.user-row').count()) === 3, String(await page.locator('.user-row').count()));
-  check(9, 'user list avatars proxied on the client (server leaves them bare)', imageRequests.some((u) => u.startsWith(proxied('https://example.test/a/'))), imageRequests.filter((u) => u.includes('example.test')).join(' '));
-  await row('Steve Edited').locator('.act-more').click();
-  await sheet.locator('.act-guest').waitFor();
-  check(5, 'no delete on self', (await sheet.locator('.act-delete').count()) === 0 && (await sheet.locator('.act-guest').count()) === 1);
-  await closeSheet();
-  await act('guest@example.com', 'administrator');
-  await sleep(400);
-  let g = await api('token', { token: guestToken });
-  check(5, 'set guest -> administrator', g.data.type === 'administrator');
-  await act('guest@example.com', 'guest');
-  await sleep(400);
-  g = await api('token', { token: guestToken });
-  check(5, 'set administrator -> guest', g.data.type === 'guest');
-  await act('Steve Edited', 'guest');
-  await sleep(300);
-  check(5, 'cannot demote self (notice)', ((await page.locator('.notice').textContent().catch(() => '')) ?? '').includes("can't set yourself"), await page.locator('.notice').textContent().catch(() => 'no notice'));
-  await page.locator('.notice-close').click();
-  await act('guest@example.com', 'label');
-  await sheet.locator('input[name=label]').fill('VIP');
-  await sheet.locator('.act-label-save').click();
-  await sleep(400);
-  check(5, 'set label', (await row('guest@example.com').locator('.tag', { hasText: 'VIP' }).count()) === 1);
-  await act('third@example.com', 'delete');
-  const userAsked = (await sheet.locator('.act-delete-confirm').count()) === 1;
-  await sheet.locator('.act-delete-confirm').click();
-  await sleep(500);
-  const users = await api('user?page=1', { token: adminToken });
-  const third = users.data.data.find((u) => u?.email === 'third@example.com');
-  await row('third@example.com').locator('.act-more').click();
-  await sheet.locator('.act-label').waitFor();
-  const noDelete = (await sheet.locator('.act-delete').count()) === 0;
-  await closeSheet();
-  check(5, 'delete user: confirms, Waline bans it, row shows Banned without reload', userAsked && third?.type === 'banned' && (await row('third@example.com').locator('.tag').first().textContent()) === 'Banned' && noDelete, third?.type);
-  await page.reload();
-  await settle(page);
-  check(5, 'banned user shows Banned after reload', (await row('third@example.com').locator('.tag').first().textContent()) === 'Banned');
-  await act('third@example.com', 'guest');
-  await sleep(400);
-  const unbanned = (await api('user?page=1', { token: adminToken })).data.data.find((u) => u?.email === 'third@example.com');
-  check(5, 'banned user can be restored to guest', unbanned?.type === 'guest', unbanned?.type);
+  const page = await open(ctx, '/');
+  const navs = await page.locator('.site-nav .nav-link').allTextContents();
+  const tabs = await page.locator('.tabbar .tabbar-label').allTextContents();
+  check(5, 'no Users page in the navigation (Comments, Migration, Settings; tabs Comments, Export, Profile)', navs.join(',') === 'Comments,Migration,Settings' && tabs.join(',') === 'Comments,Export,Profile', `${navs.join(',')} | ${tabs.join(',')}`);
+  await page.evaluate(() => { history.pushState({}, '', '/user'); dispatchEvent(new PopStateEvent('popstate')); });
+  await sleep(200);
+  check(5, '/user inside the admin is its 404 view', (await h1(page)) === '404', await h1(page));
   await ctx.close();
 }
 
 {
   const ctx = await ctxFor({ token: adminToken });
   const page = await open(ctx, '/migration');
-  const before = await api('comment?type=list&status=approved&page=1&pageSize=100', { token: adminToken });
   const [download] = await Promise.all([page.waitForEvent('download'), page.locator('button', { hasText: /export/iu }).first().click()]);
   const file = `${OUT}/export.json`;
   await download.saveAs(file);
   const data = JSON.parse(fs.readFileSync(file, 'utf8'));
-  check(5, 'export downloads waline JSON', data.type === 'waline' && data.data.Comment.length > 0 && data.data.Users.length === 3, `${download.suggestedFilename()} comments=${data.data.Comment?.length}`);
-  const importSheet = page.locator('.sheet-root.is-open');
-  const importNotice = page.locator('.import-notice');
-  await page.locator('button', { hasText: /^import$/iu }).click();
-  await importSheet.locator('.act-import-confirm').waitFor({ timeout: 3000 }).catch(() => {});
-  check(5, 'import asks in an in-app sheet first (no confirm dialog)', (await importSheet.locator('.act-import-confirm').count()) === 1 && /overwrit/iu.test(await importSheet.textContent()) && !page.__dialogs.length);
+  check(5, 'export downloads waline JSON', data.type === 'waline' && data.data.Comment.length > 0 && data.data.Users.length === 2, `${download.suggestedFilename()} comments=${data.data.Comment?.length}`);
+  check(5, 'the migration page offers export only: no import button and no file input', (await page.locator('button', { hasText: /import/iu }).count()) === 0 && (await page.locator('input[type=file]').count()) === 0 && (await page.locator('.migration .panel').count()) === 1);
   await page.setViewportSize({ width: 390, height: 800 });
-  await page.screenshot({ path: `${OUT}/migration-confirm-390.png` });
+  await page.screenshot({ path: `${OUT}/migration-390.png`, fullPage: true });
   await page.setViewportSize({ width: 1280, height: 800 });
-  await importSheet.getByRole('button', { name: 'Cancel' }).click();
-  await page.locator('.sheet-root').waitFor({ state: 'detached', timeout: 3000 }).catch(() => {});
-  const bogus = `${OUT}/not-waline.json`;
-  fs.writeFileSync(bogus, JSON.stringify({ type: 'other' }));
-  let chooser = page.waitForEvent('filechooser');
-  await page.locator('button', { hasText: /^import$/iu }).click();
-  await importSheet.locator('.act-import-confirm').click();
-  await (await chooser).setFiles(bogus);
-  await importNotice.waitFor({ timeout: 5000 }).catch(() => {});
-  await page.locator('.sheet-root').waitFor({ state: 'detached', timeout: 3000 }).catch(() => {});
-  check(5, 'importing a file that is not a Waline export fails inline, nothing deleted', /isn't a Waline export/iu.test(await importNotice.textContent().catch(() => '')) && (await importNotice.getAttribute('class')).includes('notice-error') && (await api('comment?type=list&status=approved&page=1&pageSize=100', { token: adminToken })).data.data.length === before.data.data.length, await importNotice.textContent().catch(() => 'none'));
-  await page.setViewportSize({ width: 390, height: 800 });
-  await page.screenshot({ path: `${OUT}/migration-error-390.png`, fullPage: true });
-  await page.setViewportSize({ width: 1280, height: 800 });
-  chooser = page.waitForEvent('filechooser');
-  await page.locator('button', { hasText: /^import$/iu }).click();
-  await importSheet.locator('.act-import-confirm').click();
-  await (await chooser).setFiles(file);
-  const t0 = Date.now();
-  while (!/success|fail/iu.test((await importNotice.textContent().catch(() => '')) ?? '') && Date.now() - t0 < 30000) await sleep(200);
-  await sleep(500);
-  const after = await api('comment?type=list&status=approved&page=1&pageSize=100', { token: adminToken });
-  const spam = await api('comment?type=list&status=spam&page=1&pageSize=100', { token: adminToken });
-  const bText = before.data.data.map((c) => c.orig).sort().join('|');
-  const aText = after.data.data.map((c) => c.orig).sort().join('|');
-  check(5, 'import round-trips comments', /success/iu.test(await importNotice.textContent().catch(() => '')) && bText === aText && after.data.data.length === before.data.data.length && spam.data.data.length === 7, `notice=${await importNotice.textContent().catch(() => '')} before=${before.data.data.length} after=${after.data.data.length}`);
-  check(5, 'import success is an inline notice, no dialog, no reload', (await importNotice.getAttribute('class')).includes('notice-success') && !page.__dialogs.length && (await page.evaluate(() => performance.getEntriesByType('navigation').length)) === 1);
   await page.route('**/api/db?*', (route) => (route.request().method() === 'GET' ? route.fulfill({ status: 500, contentType: 'application/json', body: '{"errno":500,"errmsg":"boom"}' }) : route.continue()));
   await page.route('**/api/db', (route) => route.fulfill({ status: 500, contentType: 'application/json', body: '{"errno":500,"errmsg":"boom"}' }));
   await page.locator('button', { hasText: /^export$/iu }).first().click();
   await sleep(500);
   check(5, 'export failure is an inline notice, not an unhandled rejection', /export failed/iu.test(await page.locator('.migration .panel').first().locator('.notice').textContent().catch(() => '')) && !page.__console.some((e) => /Unhandled|pageerror/u.test(e)), `${await page.locator('.migration .notice').first().textContent().catch(() => 'none')} ${page.__console.join(' | ')}`);
   await page.unrouteAll({ behavior: 'ignoreErrors' });
-  const reply = after.data.data.find((c) => c.orig === 'Thanks from the admin');
-  const parent = reply && after.data.data.find((c) => c.objectId === reply.pid);
-  check(5, 'import rebuilt reply relationship', Boolean(parent), reply ? `pid=${reply.pid}` : 'reply missing');
-  const me = await api('token', { token: adminToken });
-  check(5, 'admin still valid after import', me.data?.type === 'administrator');
   await ctx.close();
 }
 
@@ -855,7 +772,7 @@ const HOSTILE = [
 }
 
 const pagesLoggedOut = ['/', '/login', '/forgot', '/nope'];
-const pagesAdmin = ['/', '/?view=posts', `/thread?path=${encodeURIComponent('/posts/convo/')}`, '/profile', '/user', '/migration'];
+const pagesAdmin = ['/', '/?view=posts', `/thread?path=${encodeURIComponent('/posts/convo/')}`, '/profile', '/migration'];
 const pagesGuest = ['/profile'];
 const overflow = [];
 for (const width of [320, 360, 390, 414, 768, 1280]) {

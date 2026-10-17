@@ -1158,8 +1158,7 @@ input[type='checkbox'] {
   min-width: 0;
 }
 
-.comment-list,
-.user-list {
+.comment-list {
   list-style: none;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
@@ -1191,7 +1190,6 @@ input[type='checkbox'] {
 }
 
 .comment,
-.user-row,
 .comment-skeleton {
   position: relative;
   padding: 14px;
@@ -2077,45 +2075,6 @@ textarea.composer-input:disabled {
   border-radius: 999px;
 }
 
-/* Users */
-
-.user-row {
-  display: grid;
-  grid-template-columns: 40px minmax(0, 1fr) auto;
-  gap: 12px;
-  align-items: start;
-}
-
-.user-row.banned .user-main {
-  opacity: 0.7;
-}
-
-.user-main {
-  min-width: 0;
-}
-
-.user-name-row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 4px 8px;
-  min-height: 24px;
-}
-
-.user-email {
-  margin-top: 2px;
-  font-size: 0.86rem;
-  overflow-wrap: anywhere;
-}
-
-.user-email a {
-  color: var(--text-muted-color);
-}
-
-.user-row .act-more {
-  margin: -6px -6px 0 0;
-}
-
 /* Pager */
 
 .pager {
@@ -2667,10 +2626,6 @@ textarea.composer-input:disabled {
   gap: 16px;
 }
 
-.migration .panel + .panel {
-  margin-top: 0;
-}
-
 /* Hover */
 
 @media (hover: hover) {
@@ -3069,16 +3024,6 @@ textarea.composer-input:disabled {
 
   .manage.is-selecting {
     padding-bottom: calc(var(--tabbar-h) + var(--safe-bottom) + 150px);
-  }
-
-  .user-row {
-    grid-template-columns: 40px minmax(0, 1fr) 44px;
-    gap: 12px;
-    padding: 14px 8px 14px 14px;
-  }
-
-  .user-row .act-more {
-    margin: -8px 0 0;
   }
 
   .pager-full {

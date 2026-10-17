@@ -10,7 +10,6 @@ import ManageComments from './pages/manage-comments/index.jsx';
 import Thread from './pages/manage-comments/thread.jsx';
 import Migration from './pages/migration/index.jsx';
 import Profile from './pages/profile/index.jsx';
-import User from './pages/user/index.jsx';
 import { store } from './store/index.js';
 
 function Home() {
@@ -83,7 +82,6 @@ export default function App() {
             }
           />
           <Route path="/thread" element={admin(<Thread />)} />
-          <Route path="/user" element={admin(<User />)} />
           <Route path="/migration" element={admin(<Migration />)} />
           <Route path="/ui/*" element={<Legacy />} />
           <Route path="/ui" element={<Legacy />} />
