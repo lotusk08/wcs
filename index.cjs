@@ -20,6 +20,7 @@ const store = createPasskeyStore({
 
 const ui = createUi({
   bundlePath: path.join(__dirname, 'admin', 'dist', 'admin.js'),
+  jwtKey: () => think.config('jwtKey'),
 });
 
 const passkey = createPasskey({

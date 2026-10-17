@@ -143,6 +143,8 @@ const GUEST = { nick: 'Guest', email: 'guest@example.com', password: 'Guest-pass
     const at = await loc(page);
     check(1, `${p} -> login with redirect`, at === `/login?redirect=${encodeURIComponent(p)}` && (await h1(page)) === 'Login', at);
   }
+  const usersPage = await fetch(`${BASE}/user`);
+  check(1, "/user is no longer an admin page: the server refuses Waline's user list there", usersPage.status === 404 && (await usersPage.json()).errmsg === 'The user list is disabled.', String(usersPage.status));
   check(1, 'document title', (await page.title()) === 'Comments · Steve Hoang', await page.title());
   await page.evaluate(() => { history.pushState({}, '', '/nope/deep'); dispatchEvent(new PopStateEvent('popstate')); });
   await sleep(200);
@@ -709,6 +711,7 @@ const HOSTILE = [
 }
 
 {
+  const guest = (await api('token', { token: guestToken })).data;
   const ctx = await ctxFor({ token: adminToken });
   const page = await open(ctx, '/');
   const navs = await page.locator('.site-nav .nav-link').allTextContents();
@@ -717,12 +720,18 @@ const HOSTILE = [
   await page.evaluate(() => { history.pushState({}, '', '/user'); dispatchEvent(new PopStateEvent('popstate')); });
   await sleep(200);
   check(5, '/user inside the admin is its 404 view', (await h1(page)) === '404', await h1(page));
+  const listUsers = await fetch(`${BASE}/api/user?page=1`, { headers: { authorization: `Bearer ${adminToken}` } });
+  const promote = await api(`user/${guest.objectId}`, { method: 'PUT', token: adminToken, body: { type: 'administrator', label: 'VIP' } });
+  const ban = await fetch(`${BASE}/api/user/${guest.objectId}`, { method: 'DELETE', headers: { authorization: `Bearer ${adminToken}` } });
+  const guestAfter = (await api('token', { token: guestToken })).data;
+  check(5, 'the user list, editing another user and banning are refused, even for the administrator', listUsers.status === 404 && promote.errno === 403 && ban.status === 403 && guestAfter.type === 'guest' && !guestAfter.label, `${listUsers.status} ${promote.errno} ${ban.status} ${guestAfter.type}`);
   await ctx.close();
 }
 
 {
   const ctx = await ctxFor({ token: adminToken });
   const page = await open(ctx, '/migration');
+  const before = await api('comment?type=list&status=approved&page=1&pageSize=100', { token: adminToken });
   const [download] = await Promise.all([page.waitForEvent('download'), page.locator('button', { hasText: /export/iu }).first().click()]);
   const file = `${OUT}/export.json`;
   await download.saveAs(file);
@@ -732,6 +741,12 @@ const HOSTILE = [
   await page.setViewportSize({ width: 390, height: 800 });
   await page.screenshot({ path: `${OUT}/migration-390.png`, fullPage: true });
   await page.setViewportSize({ width: 1280, height: 800 });
+  const writes = [];
+  for (const [method, p] of [['POST', 'db?table=Comment'], ['PUT', 'db?table=Comment&objectId=1'], ['DELETE', 'db?table=Comment'], ['POST', 'db?method=get']]) {
+    writes.push((await fetch(`${BASE}/api/${p}`, { method, headers: { 'content-type': 'application/json', authorization: `Bearer ${adminToken}` }, body: method === 'DELETE' ? undefined : '{}' })).status);
+  }
+  const afterWrites = await api('comment?type=list&status=approved&page=1&pageSize=100', { token: adminToken });
+  check(5, '/api/db refuses every write (what import used), even for the administrator, and nothing changed', writes.every((status) => status === 403) && afterWrites.data.data.length === before.data.data.length, writes.join(','));
   await page.route('**/api/db?*', (route) => (route.request().method() === 'GET' ? route.fulfill({ status: 500, contentType: 'application/json', body: '{"errno":500,"errmsg":"boom"}' }) : route.continue()));
   await page.route('**/api/db', (route) => route.fulfill({ status: 500, contentType: 'application/json', body: '{"errno":500,"errmsg":"boom"}' }));
   await page.locator('button', { hasText: /^export$/iu }).first().click();

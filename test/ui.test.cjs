@@ -5,6 +5,8 @@ const os = require('node:os');
 const path = require('node:path');
 const { after, before, describe, test } = require('node:test');
 
+const jwt = require('jsonwebtoken');
+
 const { createUi } = require('../lib/ui.cjs');
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wcs-ui-'));
@@ -48,6 +50,9 @@ const globalOf = (body, key) => {
   return line && new Function(`return ${line.split(' = ').slice(1).join(' = ').replace(/;\s*$/u, '')}`)();
 };
 
+const KEY = 'test-jwt-key';
+const tokenFor = (id) => jwt.sign(String(id), KEY);
+
 describe('ui router', () => {
   let ctx;
 
@@ -56,7 +61,7 @@ describe('ui router', () => {
   });
   after(() => ctx.server.close());
 
-  const shellRoutes = ['/', '/login', '/forgot', '/profile', '/user', '/migration', '/thread'];
+  const shellRoutes = ['/', '/login', '/forgot', '/profile', '/migration', '/thread'];
 
   for (const route of shellRoutes) {
     for (const p of new Set([route, `${route}/`.replace('//', '/'), `${route}?token=abc&x=1`])) {
@@ -109,6 +114,16 @@ describe('ui router', () => {
     const res = await request(ctx.port, { method: 'HEAD', path: '/thread?path=%2Fx%2F' });
     assert.equal(res.status, 200);
     assert.equal(res.body, '');
+  });
+
+  test("/user is no longer a page: Waline's un-prefixed user list is refused", async () => {
+    for (const p of ['/user', '/user/', '/user?page=2']) {
+      const before = ctx.calls.length;
+      const res = await request(ctx.port, { path: p });
+      assert.equal(res.status, 404, p);
+      assert.deepEqual(JSON.parse(res.body), { errno: 404, errmsg: 'The user list is disabled.' });
+      assert.equal(ctx.calls.length, before, p);
+    }
   });
 
   test('nested and look-alike thread paths pass through', async () => {
@@ -670,15 +685,15 @@ describe('registration guard', () => {
     }
   });
 
-  test('profile updates, user management, password reset and login still pass', async () => {
+  test('own profile updates, password reset and login still pass', async () => {
     const ctx = await serve();
     try {
       const allowed = [
         ['PUT', '/api/user'],
-        ['PUT', '/api/user/123'],
-        ['DELETE', '/api/user/123'],
-        ['GET', '/api/user?page=1'],
+        ['PUT', '/api/user/'],
+        ['PUT', '/api/user?lang=en'],
         ['PUT', '/api/user/password'],
+        ['PUT', '/api/user/password?lang=en'],
         ['POST', '/api/user/password'],
         ['POST', '/api/token'],
         ['GET', '/api/token/2fa?email=a%40b.c'],
@@ -730,6 +745,167 @@ describe('registration guard', () => {
       assert.equal((await request(ctx.port, { method: 'POST', path: '/api/user', headers: host, body })).status, 200);
     } finally {
       ctx.server.close();
+    }
+  });
+});
+
+describe('user guard', () => {
+  const OWN = '42';
+  const json = { 'content-type': 'application/json' };
+  const auth = (id = OWN) => ({ ...json, authorization: `Bearer ${tokenFor(id)}` });
+  const body = JSON.stringify({ label: 'x', type: 'administrator' });
+  let ctx;
+
+  before(async () => {
+    ctx = await serve({ jwtKey: () => KEY, env: { _HANDLER: 'index.handler' } });
+  });
+  after(() => ctx.server.close());
+
+  const refused = async (method, p, headers, status, errmsg) => {
+    const before = ctx.calls.length;
+    const res = await request(ctx.port, { method, path: p, headers, body: ['PUT', 'POST'].includes(method) ? body : undefined });
+    assert.equal(res.status, status, `${method} ${p}`);
+    assert.deepEqual(JSON.parse(res.body || '{}'), method === 'HEAD' ? {} : { errno: status, errmsg }, `${method} ${p}`);
+    assert.equal(ctx.calls.length, before, `${method} ${p}`);
+  };
+
+  test('the user list (every column, password hashes and 2FA secrets included) is refused, with or without a token', async () => {
+    for (const p of ['/api/user', '/api/user/', '/api/user?page=1', '/api/user?email=a%40b.c', `/api/user/${OWN}`, '/api/user.html', '/api//user', '/user', '/api/user/Password', '/.netlify/functions/index/api/user']) {
+      for (const headers of [json, auth()]) {
+        await refused('GET', p, headers, 404, 'The user list is disabled.');
+        await refused('HEAD', p, headers, 404);
+      }
+    }
+  });
+
+  test('banning or removing a user is refused, even with ALLOW_REGISTER on', async () => {
+    for (const p of ['/api/user/123', `/api/user/${OWN}`, '/api/user', '/api/user?id=123', '/user/123', '/api/user/Password']) {
+      await refused('DELETE', p, auth(), 403, 'Only your own account can be changed.');
+    }
+    const open = await serve({ jwtKey: KEY, env: { ALLOW_REGISTER: 'true' } });
+    try {
+      for (const [p, status] of [['/api/user/123?method=delete', 403], ['/api/user?method=get', 404], ['/api/user?method=put&id=123', 403]]) {
+        const res = await request(open.port, { method: 'POST', path: p, headers: auth(), body });
+        assert.equal(res.status, status, p);
+        assert.equal(open.calls.length, 0, p);
+      }
+    } finally {
+      open.server.close();
+    }
+  });
+
+  test('editing another user is refused: an id in the path or ?id= that is not the signed-in user', async () => {
+    for (const p of ['/api/user/123', '/api/user?id=123', '/api/user/123?id=123', '/api/user/abc,def', '/api/user/Password', '/api/user/%31%32%33', '/user/123', `/api/user/${OWN}?id=123`]) {
+      await refused('PUT', p, auth(), 403, 'Only your own account can be changed.');
+    }
+    for (const headers of [json, { ...json, authorization: 'Bearer not-a-token' }, { ...json, authorization: `Bearer ${jwt.sign(OWN, 'other-key')}` }]) {
+      await refused('PUT', `/api/user/${OWN}`, headers, 403, 'Only your own account can be changed.');
+    }
+  });
+
+  test('the signed-in user may still name their own id, and the profile update and password reset pass', async () => {
+    const cases = [
+      ['/api/user', auth()],
+      ['/api/user', json],
+      [`/api/user/${OWN}`, auth()],
+      [`/api/user?id=${OWN}`, auth()],
+      [`/api/user/${OWN}?state=${tokenFor(OWN)}`, json],
+      ['/api/user?id=', auth()],
+      ['/api/user?id=1&id=2', auth()],
+      ['/api/user/x.html', auth()],
+      ['/api/user/123/', auth()],
+      ['/api/user/password', json],
+    ];
+    for (const [p, headers] of cases) {
+      const res = await request(ctx.port, { method: 'PUT', path: p, headers, body });
+      assert.equal(res.status, 200, p);
+      assert.deepEqual(ctx.calls.at(-1), { method: 'PUT', url: p });
+    }
+    const res = await request(ctx.port, { method: 'OPTIONS', path: '/api/user/123' });
+    assert.equal(res.status, 200);
+  });
+});
+
+describe('retired Waline routes', () => {
+  const json = { 'content-type': 'application/json' };
+  const bearer = { ...json, authorization: `Bearer ${tokenFor('7')}` };
+  let ctx;
+
+  before(async () => {
+    ctx = await serve({ jwtKey: KEY, env: { _HANDLER: 'index.handler' } });
+  });
+  after(() => ctx.server.close());
+
+  const expect = async (method, p, headers, status, errmsg) => {
+    const before = ctx.calls.length;
+    const res = await request(ctx.port, { method, path: p, headers, body: ['PUT', 'POST'].includes(method) ? '{}' : undefined });
+    assert.equal(res.status, status, `${method} ${p}`);
+    if (method !== 'HEAD') assert.deepEqual(JSON.parse(res.body), { errno: status, errmsg }, `${method} ${p}`);
+    assert.equal(ctx.calls.length, before, `${method} ${p}`);
+  };
+
+  const passes = async (method, p, headers = json) => {
+    const res = await request(ctx.port, { method, path: p, headers, body: ['PUT', 'POST'].includes(method) ? '{}' : undefined });
+    assert.equal(res.status, 200, `${method} ${p}`);
+    assert.deepEqual(ctx.calls.at(-1), { method, url: p });
+  };
+
+  test('page views and reactions (/api/article) are refused for every method, signed in or not', async () => {
+    for (const p of ['/api/article', '/api/article?path=%2Fx', '/article', '/api/Article', '/api/article.html', '/api//article/', '/.netlify/functions/index/api/article']) {
+      for (const method of ['GET', 'HEAD', 'POST', 'PUT', 'DELETE', 'OPTIONS']) {
+        await expect(method, p, bearer, 404, 'Page views and reactions are disabled.');
+      }
+    }
+  });
+
+  test('the comment feed (/api/comment/rss) is 404', async () => {
+    for (const p of ['/api/comment/rss', '/api/comment/rss?url=%2Fx', '/comment/rss', '/api/comment/RSS', '/api/comment/rss.html', '/api/comment/rss/']) {
+      for (const method of ['GET', 'HEAD', 'POST']) await expect(method, p, json, 404, 'The comment feed is disabled.');
+    }
+  });
+
+  test('comment counts and recent comments need a valid sign-in token; the widget calls still pass', async () => {
+    const junk = [
+      { ...json, authorization: 'junk' },
+      { ...json, authorization: 'Bearer junk' },
+      { ...json, authorization: `Bearer ${jwt.sign('7', 'another-key')}` },
+      { ...json, authorization: `Bearer ${jwt.sign({ id: '7' }, KEY)}` },
+    ];
+    for (const p of ['/api/comment?type=count&url=%2Fx', '/api/comment?type=recent', '/api/comment?type=recent&count=50', '/comment?type=count', '/api/comment/?type=recent']) {
+      await expect('GET', p, json, 401, 'Sign in first.');
+      await expect('POST', `${p}&method=get`, json, 401, 'Sign in first.');
+      for (const headers of junk) await expect('GET', p, headers, 401, 'Sign in first.');
+      await passes('GET', p, bearer);
+      await passes('GET', `${p}&state=${tokenFor('7')}`);
+    }
+    await expect('POST', '/api/comment?method=GET&type=count', json, 401, 'Sign in first.');
+    for (const [method, p] of [['GET', '/api/comment?path=%2Fposts%2Fx%2F'], ['GET', '/api/comment?type=list&page=1'], ['POST', '/api/comment'], ['PUT', '/api/comment/12'], ['DELETE', '/api/comment/12']]) {
+      await passes(method, p);
+    }
+  });
+
+  test('e-mail verification of a new account is refused while sign-up is closed', async () => {
+    for (const method of ['GET', 'POST']) {
+      for (const p of ['/api/verification?token=1234&email=a%40b.c', '/verification?token=1', '/api/Verification']) {
+        await expect(method, p, json, 403, 'Registration is closed.');
+      }
+    }
+    const open = await serve({ env: { ALLOW_REGISTER: 'true' } });
+    try {
+      const res = await request(open.port, { path: '/api/verification?token=1234&email=a%40b.c' });
+      assert.equal(res.status, 200);
+      assert.equal(open.calls.length, 1);
+    } finally {
+      open.server.close();
+    }
+  });
+
+  test('/api/db only exports: GET passes, every write (the old import) is refused', async () => {
+    for (const method of ['GET', 'HEAD', 'OPTIONS']) await passes(method, '/api/db?lang=en', bearer);
+    for (const method of ['POST', 'PUT', 'DELETE', 'PATCH']) {
+      for (const p of ['/api/db?table=Comment', '/api/db?table=Users&objectId=1', '/db?table=Comment', '/api/DB', '/api/db?method=get']) {
+        await expect(method, p, bearer, 403, 'Import is disabled: the database can only be exported.');
+      }
     }
   });
 });
