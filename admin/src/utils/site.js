@@ -22,29 +22,6 @@ const siteOrigin = (() => {
   }
 })();
 
-export const TRUSTED_ORIGINS = [
-  ...new Set(
-    [siteOrigin, location.origin, ...(Array.isArray(window.ALLOWED_ORIGINS) ? window.ALLOWED_ORIGINS : [])].filter(Boolean),
-  ),
-];
-
-const PRIVATE_FIELDS = ['2fa', 'password'];
-
-export const publicUser = (user) =>
-  Object.fromEntries(Object.entries(user ?? {}).filter(([key]) => !PRIVATE_FIELDS.includes(key)));
-
-export const postToOpener = (message) => {
-  if (!window.opener) return;
-
-  for (const origin of TRUSTED_ORIGINS) {
-    try {
-      window.opener.postMessage(message, origin);
-    } catch {
-      // opener gone or origin mismatch
-    }
-  }
-};
-
 export const safePath = (value) => {
   if (typeof value !== 'string' || !value) return null;
 

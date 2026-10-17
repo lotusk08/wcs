@@ -73,6 +73,7 @@ describe('ui router', () => {
         assert.equal(res.headers['x-content-type-options'], 'nosniff');
         assert.equal(res.headers['referrer-policy'], 'strict-origin-when-cross-origin');
         assert.equal(res.headers['x-frame-options'], 'DENY');
+        assert.equal(res.headers['cross-origin-opener-policy'], 'same-origin');
         assert.match(res.body, /^<!doctype html>/u);
         assert.match(res.body, /<html lang="en">/u);
         assert.match(res.body, /<meta charset="utf-8">/u);
@@ -84,7 +85,6 @@ describe('ui router', () => {
         assert.match(res.body, /<script type="module" src="\/admin\.js\?v=[0-9a-f]{12}"><\/script>/u);
         assert.equal(globalOf(res.body, 'SITE_URL'), 'https://stevehoang.com');
         assert.equal(globalOf(res.body, 'SITE_NAME'), 'Steve Hoang');
-        assert.deepEqual(globalOf(res.body, 'ALLOWED_ORIGINS'), []);
         assert.equal(globalOf(res.body, 'recaptchaV3Key'), undefined);
         assert.equal(globalOf(res.body, 'turnstileKey'), undefined);
         assert.equal(globalOf(res.body, 'serverURL'), 'https://line.stevehoang.com/api/');
@@ -520,13 +520,13 @@ describe('server url and allowed origins', () => {
     }
   });
 
-  test('ALLOWED_ORIGINS keeps only bare http(s) origins', async () => {
-    const ctx = await serve({
-      env: { ALLOWED_ORIGINS: ' https://a.example , http://b.example:8080,https://c.example/path,javascript:x,https://d.example/,,ftp://e.example' },
-    });
+  test('ALLOWED_ORIGINS and PASSKEYS no longer reach the shell', async () => {
+    const ctx = await serve({ env: { ALLOWED_ORIGINS: 'https://a.example', PASSKEYS: '[{"id":"a","publicKey":"b","userId":"1"}]' } });
     try {
       const res = await request(ctx.port, { path: '/' });
-      assert.deepEqual(globalOf(res.body, 'ALLOWED_ORIGINS'), ['https://a.example', 'http://b.example:8080']);
+      assert.equal(globalOf(res.body, 'ALLOWED_ORIGINS'), undefined);
+      assert.equal(globalOf(res.body, 'PASSKEY_ENABLED'), undefined);
+      assert.ok(!res.headers['content-security-policy'].includes('a.example'));
     } finally {
       ctx.server.close();
     }
@@ -560,7 +560,8 @@ describe('content security policy', () => {
       assert.deepEqual(policy['frame-ancestors'], ["'none'"]);
       assert.ok(!policy['script-src'].includes("'unsafe-inline'"));
       assert.ok(policy['connect-src'].includes("'self'"));
-      assert.equal(a.headers['cross-origin-opener-policy'], undefined);
+      assert.ok(!policy['connect-src'].includes('https://registry.npmjs.org'));
+      assert.equal(a.headers['cross-origin-opener-policy'], 'same-origin');
     } finally {
       ctx.server.close();
     }
@@ -593,7 +594,7 @@ describe('oauth guard', () => {
   let ctx;
 
   before(async () => {
-    ctx = await serve({ env: { SITE_URL: 'https://stevehoang.com', ALLOWED_ORIGINS: 'https://friend.example', _HANDLER: 'index.handler' } });
+    ctx = await serve({ env: { SITE_URL: 'https://stevehoang.com', _HANDLER: 'index.handler' } });
   });
   after(() => ctx.server.close());
 

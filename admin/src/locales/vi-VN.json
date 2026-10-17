@@ -93,7 +93,6 @@
   "find password success! please go to your mailbox to reset it!": "Đã gửi email đặt lại mật khẩu. Vui lòng kiểm tra hộp thư.",
   "find password error! try again later": "Gửi email đặt lại mật khẩu thất bại. Vui lòng thử lại sau.",
   "exclusive label": "Nhãn độc quyền",
-  "new version tips": "Phiên bản mới @waline/vercel@{{version}} đã phát hành. Vui lòng cập nhật càng sớm càng tốt. Xem <a href=\"https://waline.js.org/advanced/faq.html#server\" target=\"_blank\">FAQ</a> để biết cách cập nhật.",
   "avatar": "Ảnh đại diện",
   "select": "Chọn",
   "select item": "Chọn mục",

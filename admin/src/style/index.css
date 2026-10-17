@@ -360,17 +360,6 @@ code,
   display: none;
 }
 
-.banner {
-  max-width: 1080px;
-  margin: 12px auto 0;
-  padding: 8px 12px;
-  border-left: 2px solid var(--primary-color);
-  background: var(--tint);
-  font-size: 0.85rem;
-  width: calc(100% - 2 * var(--gutter));
-  overflow-wrap: anywhere;
-}
-
 /* Avatars */
 
 .avatar {

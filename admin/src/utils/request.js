@@ -75,7 +75,5 @@ export default async function request(url, opts = {}) {
     });
   }
 
-  const __version = resp.headers.get('x-waline-version');
-
-  return { __version, ...result.data };
+  return { ...result.data };
 }

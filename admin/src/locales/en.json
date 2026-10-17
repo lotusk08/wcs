@@ -93,7 +93,6 @@
   "find password success! please go to your mailbox to reset it!": "The reset password email has been sent successfully, please check it in your mailbox!",
   "find password error! try again later": "Failed to send reset password email, please try again later!",
   "exclusive label": "Exclusive Label",
-  "new version tips": "New version @waline/vercel@{{version}} published, please upgrade it! Goto <a href='https://waline.js.org/en/advanced/faq.html#server' target='_blank'>FAQ</a> to find How to upgrade it.",
   "avatar": "Avatar",
   "select": "Select",
   "select item": "Select item",

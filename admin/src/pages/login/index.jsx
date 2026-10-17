@@ -20,7 +20,6 @@ import {
   startAuthentication,
 } from '../../utils/passkey.js';
 import { SITE_NAME, safePath } from '../../utils/site.js';
-import { externalReturn } from '../../utils/site-redirect.js';
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/u;
 const CODE = /^\d{6}$/u;
@@ -79,13 +78,6 @@ export default function Login() {
 
   useEffect(() => {
     if (!user?.objectId) {
-      return;
-    }
-
-    const external = externalReturn(redirect);
-
-    if (external) {
-      window.location.href = external;
       return;
     }
 

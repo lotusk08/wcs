@@ -201,16 +201,18 @@ let adminToken;
   }
   await page.evaluate(() => sessionStorage.clear());
   await login(page, ADMIN.email, ADMIN.password, '/login?redirect=https%3A%2F%2Fstevehoang.com%2Fposts%2Fx');
-  await page.waitForURL((u) => u.hostname === 'stevehoang.com', { timeout: 5000 }).catch(() => {});
+  await sleep(500);
   const ext = new URL(page.url());
-  check(2, 'redirect to trusted SITE_URL allowed with token', ext.origin === 'https://stevehoang.com' && ext.pathname === '/posts/x' && ext.searchParams.get('token') === adminToken ? true : ext.origin === 'https://stevehoang.com' && ext.pathname === '/posts/x', page.url().replace(/token=[^&]+/u, 'token=…'));
+  check(2, 'a redirect to the blog after login stays here: no token is handed to another site', ext.origin === new URL(BASE).origin && ext.pathname === '/' && !page.url().includes('token=') && (await h1(page)) === 'Comments', page.url().replace(/token=[^&]+/u, 'token=…'));
+  await logout(page);
   await page.goto(`${BASE}/login?redirect=${encodeURIComponent('https://stevehoang.com/posts/x')}&token=${adminToken}`);
-  await page.waitForURL((u) => u.hostname === 'stevehoang.com', { timeout: 5000 }).catch(() => {});
+  await settle(page);
+  await sleep(300);
   const relay = new URL(page.url());
-  check(2, 'OAuth return leg (/login?redirect=<blog>&token=) relays to the blog with token', relay.origin === 'https://stevehoang.com' && relay.pathname === '/posts/x' && relay.searchParams.get('token') === adminToken, page.url().replace(/token=[^&]+/u, 'token=…'));
+  check(2, '/login?redirect=<blog>&token= signs in here and relays nothing to the blog', relay.origin === new URL(BASE).origin && relay.pathname === '/' && !page.url().includes('token=') && (await h1(page)) === 'Comments', page.url().replace(/token=[^&]+/u, 'token=…'));
   const lp = await open(await ctxFor(), `/login?redirect=${encodeURIComponent('https://stevehoang.com/posts/x')}`);
   check(2, 'login page shows no social login and no sign-up link', (await lp.locator('.social-login, .social-btn, a[href*="oauth"]').count()) === 0 && (await lp.locator('a[href^="/register"]').count()) === 0 && (await lp.locator('form[name=login]').count()) === 1);
-  check(2, 'shell sets none of the retired globals (oauthServices, PASSKEY_ENABLED)', await lp.evaluate(() => ['oauthServices', 'PASSKEY_ENABLED'].every((key) => !(key in window))));
+  check(2, 'shell sets none of the retired globals (oauthServices, ALLOWED_ORIGINS, PASSKEY_ENABLED)', await lp.evaluate(() => ['oauthServices', 'ALLOWED_ORIGINS', 'PASSKEY_ENABLED'].every((key) => !(key in window))));
   await lp.context().close();
   for (const type of ['qq', 'weibo', 'github', 'twitter', 'facebook']) {
     const r = await fetch(`${BASE}/api/oauth?type=${type}&redirect=${encodeURIComponent(`${BASE}/`)}`, { redirect: 'manual' });
@@ -224,6 +226,7 @@ let adminToken;
   const cspHeader = shellResp.headers.get('content-security-policy') ?? '';
   const nonce = (await shellResp.text()).match(/<script nonce="([^"]+)">/u)?.[1];
   check(8, 'shell CSP with matching nonce', Boolean(nonce) && cspHeader.includes(`'nonce-${nonce}'`) && cspHeader.includes("frame-ancestors 'none'"), cspHeader);
+  check(8, 'shell sends Cross-Origin-Opener-Policy: same-origin, and connect-src no longer names the npm registry', shellResp.headers.get('cross-origin-opener-policy') === 'same-origin' && !cspHeader.includes('registry.npmjs.org'), `${shellResp.headers.get('cross-origin-opener-policy')} ${cspHeader}`);
   await page.goto(`${BASE}/login`);
   await settle(page);
   check(2, 'remember-me unchecked keeps token out of localStorage', !(await page.evaluate(() => localStorage.getItem('TOKEN'))));
@@ -1132,9 +1135,8 @@ check(6, 'no horizontal scroll at 320/360/390/414/768/1280 on every page, both t
     await popup.locator('input[name=code]').pressSequentially(totp(), { delay: 20 });
     await sleep(1200);
     const messages = await blog.evaluate(() => window.__messages);
-    const info = messages.find((m) => m.data?.type === 'userInfo');
-    check(10, 'blog popup: opener gets userInfo with the token from the admin origin', info && info.origin === new URL(BASE).origin && typeof info.data.data.token === 'string' && info.data.data.email === ADMIN.email, JSON.stringify(messages).slice(0, 200));
-    check(10, 'blog popup: the 2FA secret and password never reach the blog', info && !('2fa' in info.data.data) && !('password' in info.data.data), info ? Object.keys(info.data.data).join(',') : 'none');
+    check(10, 'a popup opened by the blog has no opener (Cross-Origin-Opener-Policy) and still signs in', (await popup.evaluate(() => window.opener === null)) && (await loc(popup)) === '/' && (await h1(popup)) === 'Comments', `${await loc(popup)} ${await h1(popup)}`);
+    check(10, 'the blog receives no message from the admin: no token or account leaves this origin', messages.length === 0, JSON.stringify(messages).slice(0, 200));
     await ctx.close();
   }
 
@@ -1337,8 +1339,7 @@ check(6, 'no horizontal scroll at 320/360/390/414/768/1280 on every page, both t
     await popup.locator('.btn-passkey').click();
     await sleep(1500);
     const messages = await blog.evaluate(() => window.__messages);
-    const info = messages.find((m) => m.data?.type === 'userInfo');
-    check(11, 'blog popup: passkey login posts userInfo with the token, without the 2FA secret or password', info && info.origin === new URL(BASE).origin && typeof info.data.data.token === 'string' && info.data.data.email === ADMIN.email && !('2fa' in info.data.data) && !('password' in info.data.data), info ? Object.keys(info.data.data).join(',') : JSON.stringify(messages).slice(0, 200));
+    check(11, 'a passkey sign-in in a popup opened by the blog posts nothing to the blog, and the popup has no opener', messages.length === 0 && (await popup.evaluate(() => window.opener === null)) && (await h1(popup)) === 'Comments', JSON.stringify(messages).slice(0, 200));
     await ctx.close();
   }
 

@@ -1,6 +1,6 @@
 import cls from 'classnames';
-import { useEffect, useMemo, useState } from 'react';
-import { Trans, useTranslation } from 'react-i18next';
+import { useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useDispatch, useSelector } from 'react-redux';
 import { Link, NavLink, useLocation, useNavigate } from 'react-router';
 
@@ -110,25 +110,7 @@ export default function Header({ title }) {
   const location = useLocation();
   const user = useSelector((state) => state.user);
   const { t } = useTranslation();
-  const [latestVersion, setLatestVersion] = useState(null);
   const [menu, setMenu] = useState(false);
-
-  useEffect(() => {
-    if (user?.type !== 'administrator' || !user?.__version) {
-      return;
-    }
-
-    fetch('https://registry.npmjs.org/@waline/vercel/latest')
-      .then((resp) => resp.json())
-      .then((resp) => {
-        if (resp?.version && user.__version !== resp.version) {
-          setLatestVersion(resp.version);
-        }
-      })
-      .catch(() => {
-        // offline or blocked
-      });
-  }, [user?.type, user?.__version]);
 
   const onLogout = () => {
     setMenu(false);
@@ -219,20 +201,6 @@ export default function Header({ title }) {
       ) : null}
 
       <AccountSheet open={menu} onClose={() => setMenu(false)} user={user} onLogout={onLogout} />
-
-      {latestVersion ? (
-        <div className="banner">
-          <Trans
-            i18nKey="new version tips"
-            defaults="New version @waline/vercel@{{version}} published, please upgrade it! Goto <a href='https://waline.js.org/en/advanced/faq.html#server' target='_blank'>FAQ</a> to find How to upgrade it."
-            components={{
-              a: <a rel="noreferrer" />,
-            }}
-            values={{ version: latestVersion }}
-            transKeepBasicHtmlNodesFor={['a']}
-          />
-        </div>
-      ) : null}
     </>
   );
 }

@@ -93,7 +93,6 @@
   "find password success! please go to your mailbox to reset it!": "重置密码邮件发送成功，请去邮箱中查收！",
   "find password error! try again later": "重置密码邮件发送失败，请稍后再试！",
   "exclusive label": "专属标签",
-  "new version tips": "新版本 @waline/vercel@{{version}} 已发布，请尽快升级！查看 <a href=\"https://waline.js.org/advanced/faq.html#server\" target=\"_blank\">FAQ</a> 了解如何升级。",
   "avatar": "头像",
   "select": "选择",
   "select item": "选择项目",

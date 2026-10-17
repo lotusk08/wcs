@@ -1,7 +1,7 @@
 import { forgot, getUserInfo, login, logout, saveToken } from '../services/auth.js';
 import { passkeyLogin } from '../services/passkey.js';
 import { updateProfile } from '../services/user.js';
-import { getToken, postToOpener, publicUser, storage } from '../utils/site.js';
+import { getToken } from '../utils/site.js';
 
 let sessionExpired = false;
 
@@ -20,7 +20,6 @@ const signIn = (dispatch, { token, ...user }, remember) => {
 
   saveToken(token, remember);
   sessionExpired = false;
-  postToOpener({ type: 'userInfo', data: { ...publicUser(user), token, remember } });
 
   return dispatch.user.setUser(user);
 };
@@ -59,10 +58,6 @@ export const user = {
         return;
       }
 
-      const remember = storage.get('localStorage', 'TOKEN') === token;
-
-      postToOpener({ type: 'userInfo', data: { ...publicUser(user), token, remember } });
-
       return dispatch.user.setUser(user);
     },
     async login({ email, password, code, remember, recaptchaV3, turnstile }) {
@@ -84,8 +79,6 @@ export const user = {
     },
     async updateProfile(data) {
       await updateProfile(data);
-
-      postToOpener({ type: 'profile', data: publicUser(data) });
 
       return dispatch.user.updateUser(data);
     },

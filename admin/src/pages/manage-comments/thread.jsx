@@ -286,9 +286,7 @@ export default function Thread() {
     let saved;
 
     try {
-      const { __version, ...rest } = await updateComment(comment.objectId, data);
-
-      saved = rest;
+      saved = await updateComment(comment.objectId, data);
     } catch (err) {
       fail(err);
       throw err;
@@ -308,7 +306,7 @@ export default function Thread() {
 
     setSending(true);
     try {
-      const { __version, ...saved } = await replyComment({
+      const saved = await replyComment({
         nick: user.display_name,
         mail: user.email,
         ua: navigator.userAgent,

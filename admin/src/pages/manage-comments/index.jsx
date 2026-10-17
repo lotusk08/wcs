@@ -209,9 +209,7 @@ export default function ManageComments() {
     let saved;
 
     try {
-      const { __version, ...rest } = await updateComment(comment.objectId, data);
-
-      saved = rest;
+      saved = await updateComment(comment.objectId, data);
     } catch (err) {
       fail(err);
       throw err;
