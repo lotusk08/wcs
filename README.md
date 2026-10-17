@@ -222,10 +222,13 @@ the Vercel dashboard no longer matters for it:
 | `LOGIN`, `DISABLE_USERAGENT`, `MARKDOWN_HIGHLIGHT` | removed from the environment | Readers comment without signing in (`LOGIN=force` would refuse them); Browser/OS labels and Prism stay on |
 
 The guest avatar is fixed in `lib/avatar.cjs` and the admin; `DEFAULT_AVATAR`
-is no longer read. The Node version is `package.json`'s `engines` (`24.x`):
-`@waline/vercel` 1.41.6 needs Node `^20.19.0 || ^22.12.0 || ^24.0.0`, where
-`require()` of an ES module works unflagged, so `vercel.json` sets no
-`NODE_OPTIONS` (and no `env` at all).
+is no longer read. The Node version is `package.json`'s `engines` (`24.x`).
+`vercel.json` still sets `NODE_OPTIONS=--experimental-require-module`, its
+one `env`: Node 24 runs `require()` of an ES module unflagged, but Vercel's
+function loader does its own `require()` and does not without the flag.
+Taken out on 2026-10-17, every request failed with `ERR_REQUIRE_ESM`
+(`html-encoding-sniffer` requiring `@exodus/bytes`) until production was
+rolled back; a local server never shows it.
 
 These must stay in Vercel's environment settings; never commit them:
 
@@ -277,7 +280,7 @@ nothing reads them or the code sets them: `SITE_URL`, `SERVER_URL`,
 `SECURE_DOMAINS`, `OAUTH_URL`, `COMMENT_AUDIT`, `DISABLE_REGION`,
 `DISABLE_USERAGENT`, `LOGIN`, `MARKDOWN_TEX`, `MARKDOWN_EMOJI`,
 `MARKDOWN_SUB`, `MARKDOWN_SUP`, `MARKDOWN_HIGHLIGHT`, `MARKDOWN_MATHJAX`,
-`MARKDOWN_KATEX`, `DEFAULT_AVATAR`, `ALLOWED_ORIGINS`, `NODE_OPTIONS`,
+`MARKDOWN_KATEX`, `DEFAULT_AVATAR`, `ALLOWED_ORIGINS`,
 `WALINE_ADMIN_MODULE_ASSET_URL` (Waline's `/ui` page is never served), and
 `PASSKEYS` once the Profile page says its passkeys are imported. The Node.js
 version set in the project's settings is overridden by `engines`.
