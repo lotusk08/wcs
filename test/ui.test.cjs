@@ -148,6 +148,42 @@ describe('ui router', () => {
     assert.deepEqual(ctx.calls[before], { method: 'POST', url: '/' });
   });
 
+  test('a request target that is not origin-form is refused before anything reads it', async () => {
+    const cases = [
+      ['POST', 'http://localhost/api/user/%2e%2e'],
+      ['POST', 'http://localhost/api/token/%2e%2e'],
+      ['GET', 'http://localhost/api/article/%2e%2e'],
+      ['GET', 'http://localhost/ui/%2e%2e'],
+      ['GET', 'http://line.stevehoang.com/api/oauth'],
+      ['POST', 'http://line.stevehoang.com/api/user'],
+      ['GET', 'https://line.stevehoang.com/'],
+      ['OPTIONS', '*'],
+    ];
+    for (const [method, p] of cases) {
+      const before = ctx.calls.length;
+      const res = await request(ctx.port, { method, path: p });
+      assert.equal(res.status, 400, `${method} ${p}`);
+      assert.equal(ctx.calls.length, before, `${method} ${p}`);
+    }
+  });
+
+  test('a long last path segment Waline would test with its backtracking id pattern is refused at once', async () => {
+    const evil = `${'a'.repeat(40)}!`;
+    for (const [method, p] of [['GET', `/api/comment/${evil}`], ['GET', `/api/comment/${evil.replace('!', '%21')}`], ['PUT', `/api/user/${evil}`], ['DELETE', `/api/comment/${'ab,'.repeat(20)}!`], ['GET', `/${evil}`], ['GET', `/api/comment/${evil}.html`]]) {
+      const before = ctx.calls.length;
+      const started = process.hrtime.bigint();
+      const res = await request(ctx.port, { method, path: p });
+      const ms = Number(process.hrtime.bigint() - started) / 1e6;
+      assert.equal(res.status, 404, `${method} ${p}`);
+      assert.ok(ms < 100, `${method} ${p} took ${ms}ms`);
+      assert.equal(ctx.calls.length, before, `${method} ${p}`);
+    }
+    for (const p of [`/api/comment/${'a'.repeat(40)}`, `/api/comment/${'a1,'.repeat(20)}`, `/api/comment/${'a'.repeat(15)}!`, `/api/passkey/${'Ab-_'.repeat(10)}`]) {
+      const res = await request(ctx.port, { method: 'DELETE', path: p });
+      assert.equal(JSON.parse(res.body).url, p, p);
+    }
+  });
+
   test('GET /register redirects to /login and keeps the query', async () => {
     for (const [p, location] of [
       ['/register', '/login'],
@@ -521,7 +557,6 @@ describe('oauth guard', () => {
       '/apioauth',
       '/api/%6fauth',
       '/.netlify/functions/index/oauth',
-      'http://line.stevehoang.com/api/oauth',
     ];
     const queries = [
       '',
@@ -571,8 +606,11 @@ describe('registration guard', () => {
     '/user',
     '/user/',
     '/api/user?method=put',
+    '/api/user?method=get',
+    '/api/user/Password',
+    '/api/user/PASSWORD/x',
     '/.netlify/functions/index/user',
-    'http://line.stevehoang.com/api/user',
+    '/.netlify/functions/index/api/user',
   ];
 
   test('POST /api/user (Waline sign-up) is refused by default', async () => {
@@ -701,6 +739,20 @@ describe('password sign-in limit', () => {
       assert.equal(JSON.parse((await attempt(ctx.port, 'right')).body).errno, 0);
       for (let i = 0; i < 2; i += 1) assert.equal((await attempt(ctx.port, 'wrong')).status, 200);
       assert.equal((await attempt(ctx.port, 'right')).status, 200);
+    } finally {
+      ctx.server.close();
+    }
+  });
+
+  test('a token path Waline routes to sign-in is counted however it is spelled; ?method= is neither counted nor clears the count', async () => {
+    const ctx = await serveLogin({ limit: 2, window: 60000 });
+    try {
+      assert.equal((await attempt(ctx.port, 'wrong', '203.0.113.9', '/api/token/2FA')).status, 200);
+      assert.equal((await attempt(ctx.port, 'right', '203.0.113.9', '/api/token?method=get')).status, 200);
+      assert.equal((await attempt(ctx.port, 'wrong', '203.0.113.9', '/api/token/Abc')).status, 200);
+      assert.equal((await attempt(ctx.port, 'wrong', '203.0.113.9')).status, 429);
+      assert.equal((await attempt(ctx.port, 'wrong', '203.0.113.9', '/api/token/2FA')).status, 429);
+      assert.equal(ctx.calls.length, 3);
     } finally {
       ctx.server.close();
     }
