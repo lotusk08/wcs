@@ -208,7 +208,7 @@ let adminToken;
   check(2, 'OAuth return leg (/login?redirect=<blog>&token=) relays to the blog with token', relay.origin === 'https://stevehoang.com' && relay.pathname === '/posts/x' && relay.searchParams.get('token') === adminToken, page.url().replace(/token=[^&]+/u, 'token=…'));
   const lp = await open(await ctxFor(), `/login?redirect=${encodeURIComponent('https://stevehoang.com/posts/x')}`);
   check(2, 'login page shows no social login and no sign-up link', (await lp.locator('.social-login, .social-btn, a[href*="oauth"]').count()) === 0 && (await lp.locator('a[href^="/register"]').count()) === 0 && (await lp.locator('form[name=login]').count()) === 1);
-  check(2, 'shell lists no OAuth services', (await lp.evaluate(() => JSON.stringify(window.oauthServices))) === '[]');
+  check(2, 'shell sets none of the retired globals (oauthServices, PASSKEY_ENABLED)', await lp.evaluate(() => ['oauthServices', 'PASSKEY_ENABLED'].every((key) => !(key in window))));
   await lp.context().close();
   for (const type of ['qq', 'weibo', 'github', 'twitter', 'facebook']) {
     const r = await fetch(`${BASE}/api/oauth?type=${type}&redirect=${encodeURIComponent(`${BASE}/`)}`, { redirect: 'manual' });
@@ -302,7 +302,7 @@ const HOSTILE = [
     await page.locator('.bulkbar .bulk-all input').check();
     check(4, `select-all selects 10 (round ${round + 1})`, (await page.locator('.comment-check:checked').count()) === 10);
     await page.locator('.bulkbar .act-approved').click();
-    await sleep(300);
+    await page.waitForFunction((want) => [...document.querySelectorAll('.tabs .tab')].find((el) => el.textContent.includes('Waiting'))?.querySelector('.count')?.textContent === want, String(28 - round * 10), { timeout: 10000 }).catch(() => {});
     await waitList();
   }
   await page.locator('.bulkbar .bulk-cancel').click();
@@ -310,7 +310,6 @@ const HOSTILE = [
   check(4, 'bulk approve moved 30; waiting badge 8', (await tab('Waiting').locator('.count').textContent()) === '8', await tab('Waiting').locator('.count').textContent());
   await tab('Approved').click();
   await waitList();
-  await page.locator('.comment-list').innerHTML();
   const emoji = await page.locator('.comment-content img.wl-emoji').first().getAttribute('src').catch(() => null);
   check(4, 'emoji src rewritten to https://stevehoang.com', emoji === 'https://stevehoang.com/assets/lib/waline/emojis/sh_smile.gif', emoji);
   const mdLink = page.locator('.comment-content a', { hasText: 'my link' });
@@ -345,7 +344,6 @@ const HOSTILE = [
   await more(targetId, 'sticky');
   await sleep(400);
   check(4, 'sticky tag appears', (await page.locator(`#${targetId} .tag`).count()) === 1);
-  await api(`comment?path=${encodeURIComponent('/posts/post-1/')}`);
   await more(targetId, 'sticky');
   await sleep(400);
   check(4, 'unsticky removes tag', (await page.locator(`#${targetId} .tag`).count()) === 0);
@@ -1254,7 +1252,7 @@ check(6, 'no horizontal scroll at 320/360/390/414/768/1280 on every page, both t
     const ctx = await ctxFor();
     await noAutofill(ctx);
     const page = await open(ctx, '/login');
-    check(11, 'no PASSKEYS: the passkey button still shows wherever WebAuthn works, email joins passkey autofill', (await page.locator('.btn-passkey').count()) === 1 && (await page.locator('input[name=email]').getAttribute('autocomplete')) === 'username webauthn' && (await page.evaluate(() => window.PASSKEY_ENABLED)) === false);
+    check(11, 'no PASSKEYS: the passkey button still shows wherever WebAuthn works, email joins passkey autofill', (await page.locator('.btn-passkey').count()) === 1 && (await page.locator('input[name=email]').getAttribute('autocomplete')) === 'username webauthn');
     await page.locator('.btn-passkey').click();
     await page.locator('.notice').waitFor({ timeout: 5000 }).catch(() => {});
     check(11, 'no PASSKEYS: pressing it says passkeys are not set up, inline', /aren't set up on this server/iu.test(await notice(page)) && (await loc(page)) === '/login' && !(await page.locator('.btn-passkey').isDisabled()), await notice(page));
@@ -1336,7 +1334,7 @@ check(6, 'no horizontal scroll at 320/360/390/414/768/1280 on every page, both t
     const ctx = await ctxFor();
     const page = await open(ctx, '/login');
     const button = page.locator('.btn-passkey');
-    check(11, 'with a stored passkey (no PASSKEYS, no restart) the login page offers a passkey button above the form', (await button.count()) === 1 && (await page.evaluate(() => window.PASSKEY_ENABLED)) === true && (await page.evaluate(() => document.querySelector('.btn-passkey').compareDocumentPosition(document.querySelector('form[name=login]')) & Node.DOCUMENT_POSITION_FOLLOWING)) > 0 && (await button.textContent()).includes('Sign in with a passkey'));
+    check(11, 'with a stored passkey (no PASSKEYS, no restart) the login page offers a passkey button above the form', (await button.count()) === 1 && (await page.evaluate(() => document.querySelector('.btn-passkey').compareDocumentPosition(document.querySelector('form[name=login]')) & Node.DOCUMENT_POSITION_FOLLOWING)) > 0 && (await button.textContent()).includes('Sign in with a passkey'));
     check(11, 'the email field joins passkey autofill', (await page.locator('input[name=email]').getAttribute('autocomplete')) === 'username webauthn');
     await ctx.close();
   }
@@ -1605,7 +1603,7 @@ check(6, 'no horizontal scroll at 320/360/390/414/768/1280 on every page, both t
   {
     const ctx = await ctxFor();
     const page = await open(ctx, '/login');
-    check(11, 'with every passkey removed the shell reports none and the button stays', (await page.locator('.btn-passkey').count()) === 1 && (await page.evaluate(() => window.PASSKEY_ENABLED)) === false);
+    check(11, 'with every passkey removed the button stays', (await page.locator('.btn-passkey').count()) === 1);
     await ctx.close();
   }
   await setPasskeys('');

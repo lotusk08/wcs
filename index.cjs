@@ -11,11 +11,7 @@ const { createUi } = require('./lib/ui.cjs');
 
 const avatarUrl = createAvatar();
 
-const line = Application({
-  plugins: [],
-  avatarUrl,
-  async postSave() {},
-});
+const line = Application({ avatarUrl });
 
 const store = createPasskeyStore({
   type: think.config('storage'),
@@ -24,7 +20,6 @@ const store = createPasskeyStore({
 
 const ui = createUi({
   bundlePath: path.join(__dirname, 'admin', 'dist', 'admin.js'),
-  passkeyEnabled: () => store.peekEnabled(),
 });
 
 const passkey = createPasskey({

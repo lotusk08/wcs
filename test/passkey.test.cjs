@@ -426,29 +426,6 @@ describe('passkey store on SQLite', () => {
     assert.deepEqual((await store.state()).passkeys.map((p) => p.id), ['EnV-_1']);
   });
 
-  test('peekEnabled answers from PASSKEYS or the last read, without waiting', async () => {
-    const env = {};
-    const store = createPasskeyStore({ env, type: 'sqlite', model: sqliteModel() });
-
-    assert.equal(store.peekEnabled(), false);
-    await store.add({ id: 'PeEk', publicKey: 'QUJD', userId: '1' });
-    await store.state();
-    assert.equal(store.peekEnabled(), true);
-    await store.remove('PeEk');
-    await store.state();
-    assert.equal(store.peekEnabled(), false);
-    env.PASSKEYS = envValue;
-    assert.equal(store.peekEnabled(), true, 'a new PASSKEYS entry counts before it is imported');
-    await store.state();
-    await store.remove('EnV-_1');
-    await store.state();
-    assert.equal(store.peekEnabled(), false, 'a removed PASSKEYS entry does not');
-    await store.add({ id: 'KePt', publicKey: 'QUJD', userId: '1' });
-    await store.touch('KePt');
-    assert.equal(store.peekEnabled(), true, 'the last read still answers while the cache refills');
-    assert.equal(createPasskeyStore({ env: { PASSKEYS: envValue } }).peekEnabled(), true);
-  });
-
   test('unsupported storage or no database: PASSKEYS only, read-only, with a reason', async () => {
     for (const store of [
       createPasskeyStore({ env: { PASSKEYS: envValue }, type: 'postgresql', model: () => ({ tableName: 'wl_Passkeys' }) }),

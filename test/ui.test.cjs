@@ -82,11 +82,9 @@ describe('ui router', () => {
         assert.deepEqual(globalOf(res.body, 'ALLOWED_ORIGINS'), []);
         assert.equal(globalOf(res.body, 'recaptchaV3Key'), undefined);
         assert.equal(globalOf(res.body, 'turnstileKey'), undefined);
-        assert.deepEqual(globalOf(res.body, 'oauthServices'), []);
         assert.equal(globalOf(res.body, 'serverURL'), 'https://line.stevehoang.com/api/');
         assert.equal(globalOf(res.body, 'AVATAR_PROXY'), undefined);
         assert.equal(globalOf(res.body, 'DEFAULT_AVATAR'), undefined);
-        assert.equal(globalOf(res.body, 'PASSKEY_ENABLED'), false);
       });
     }
   }
@@ -381,7 +379,7 @@ describe('oauth services', () => {
     try {
       const res = await request(ctx.port, { path: '/login' });
       assert.equal(res.status, 200);
-      assert.deepEqual(globalOf(res.body, 'oauthServices'), []);
+      assert.equal(globalOf(res.body, 'oauthServices'), undefined);
       assert.equal(calls, 0);
     } finally {
       globalThis.fetch = original;
@@ -818,43 +816,6 @@ describe('password sign-in limit', () => {
 });
 
 describe('passkeys', () => {
-  test('PASSKEY_ENABLED is true only when PASSKEYS has a valid entry, read per request', async () => {
-    const env = {};
-    const ctx = await serve({ env });
-    try {
-      for (const [value, want] of [
-        [undefined, false],
-        ['', false],
-        ['{not json', false],
-        ['{"id":"a","publicKey":"b","userId":"1"}', true],
-        ['[{"id":"a"}]', false],
-        ['[]', false],
-        ['[{"id":"a","publicKey":"b","userId":"1"}]', true],
-        ['[{"id":"a","publicKey":"b","userId":1,"name":"x"},{"bad":true}]', true],
-      ]) {
-        if (value === undefined) delete env.PASSKEYS;
-        else env.PASSKEYS = value;
-        const res = await request(ctx.port, { path: '/login' });
-        assert.equal(res.status, 200, String(value));
-        assert.equal(globalOf(res.body, 'PASSKEY_ENABLED'), want, String(value));
-      }
-    } finally {
-      ctx.server.close();
-    }
-  });
-
-  test('with a passkey store, PASSKEY_ENABLED is what the store says, whatever PASSKEYS holds', async () => {
-    let stored = false;
-    const ctx = await serve({ env: { PASSKEYS: '[{"id":"a","publicKey":"b","userId":"1"}]' }, passkeyEnabled: () => stored });
-    try {
-      assert.equal(globalOf((await request(ctx.port, { path: '/login' })).body, 'PASSKEY_ENABLED'), false);
-      stored = true;
-      assert.equal(globalOf((await request(ctx.port, { path: '/login' })).body, 'PASSKEY_ENABLED'), true);
-    } finally {
-      ctx.server.close();
-    }
-  });
-
   test('the passkey API is left to the next handler', async () => {
     const ctx = await serve();
     try {

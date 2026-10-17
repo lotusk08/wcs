@@ -52,7 +52,7 @@ export function CommentSheet({ open, comment, actions, onClose, onError }) {
 
   if (!comment) return <BottomSheet open={false} onClose={onClose} />;
 
-  const { nick, mail, link, ip, addr, ua, url, insertedAt, time } = comment;
+  const { nick, mail, link, ip, addr, url, insertedAt, time } = comment;
   const remove = actions.find(({ key }) => key === 'delete');
   const header = (
     <div className="sheet-account">
@@ -104,12 +104,6 @@ export function CommentSheet({ open, comment, actions, onClose, onError }) {
           <div className="detail">
             <dt>{t('region')}</dt>
             <dd>{addr}</dd>
-          </div>
-        ) : null}
-        {ua ? (
-          <div className="detail">
-            <dt>{t('user agent')}</dt>
-            <dd className="detail-ua">{ua}</dd>
           </div>
         ) : null}
       </dl>
