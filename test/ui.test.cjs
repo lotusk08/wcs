@@ -140,12 +140,41 @@ describe('ui router', () => {
     }
   });
 
-  test('POST / passes through to Waline', async () => {
-    const before = ctx.calls.length;
-    const res = await request(ctx.port, { method: 'POST', path: '/' });
-    assert.equal(res.status, 200);
-    assert.deepEqual(JSON.parse(res.body), { waline: true, url: '/' });
-    assert.deepEqual(ctx.calls[before], { method: 'POST', url: '/' });
+  test("Waline's demo page (its index controller, and rest) is never reached", async () => {
+    const cases = [
+      ['POST', '/'],
+      ['PUT', '/'],
+      ['OPTIONS', '/'],
+      ['POST', '/?x=1'],
+      ['GET', '/api'],
+      ['GET', '/api/'],
+      ['GET', '/api?path=%2Fx'],
+      ['HEAD', '/api'],
+      ['POST', '/api'],
+      ['GET', '/index'],
+      ['GET', '/index.html'],
+      ['GET', '/api/index'],
+      ['GET', '/api/index/index'],
+      ['GET', '/API/INDEX'],
+      ['GET', '/api/rest'],
+      ['GET', '//api/user'],
+      ['GET', '/.netlify/functions/undefined'],
+    ];
+    for (const [method, p] of cases) {
+      const before = ctx.calls.length;
+      const res = await request(ctx.port, { method, path: p });
+      assert.equal(res.status, 404, `${method} ${p}`);
+      assert.equal(ctx.calls.length, before, `${method} ${p}`);
+    }
+  });
+
+  test('GET / is still the admin, and the passkey API is left to its handler however it is spelled', async () => {
+    const shell = await request(ctx.port, { path: '/' });
+    assert.match(shell.body, /^<!doctype html>/u);
+    for (const p of ['/api/passkey', '//api/passkey/login', '/api//passkey/login/options']) {
+      const res = await request(ctx.port, { method: 'POST', path: p });
+      assert.equal(JSON.parse(res.body).url, p, p);
+    }
   });
 
   test('a request target that is not origin-form is refused before anything reads it', async () => {
@@ -241,14 +270,29 @@ describe('ui router', () => {
     }
   });
 
-  test('/uix is not a /ui redirect', async () => {
-    const res = await request(ctx.port, { path: '/uix' });
-    assert.equal(JSON.parse(res.body).url, '/uix');
+  test("/uix and other paths Waline's dashboard answers are 404, never its unpkg admin page", async () => {
+    for (const p of ['/uix', '/ui.html', '/uiabc', '/ui-admin/x']) {
+      for (const method of ['GET', 'HEAD', 'POST', 'PUT', 'OPTIONS']) {
+        const before = ctx.calls.length;
+        const res = await request(ctx.port, { method, path: p });
+        assert.equal(res.status, 404, `${method} ${p}`);
+        assert.equal(res.headers.location, undefined, `${method} ${p}`);
+        assert.equal(ctx.calls.length, before, `${method} ${p}`);
+      }
+    }
   });
 
-  test('POST /ui passes through', async () => {
-    const res = await request(ctx.port, { method: 'POST', path: '/ui/login' });
-    assert.equal(JSON.parse(res.body).url, '/ui/login');
+  test('every other method on /ui is refused with 405, never passed to Waline', async () => {
+    for (const p of ['/ui', '/ui/', '/ui/login', '/ui/profile?token=x', '/ui//evil.com']) {
+      for (const method of ['POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS']) {
+        const before = ctx.calls.length;
+        const res = await request(ctx.port, { method, path: p });
+        assert.equal(res.status, 405, `${method} ${p}`);
+        assert.equal(res.headers.allow, 'GET, HEAD', `${method} ${p}`);
+        assert.equal(res.headers.location, undefined, `${method} ${p}`);
+        assert.equal(ctx.calls.length, before, `${method} ${p}`);
+      }
+    }
   });
 
   test('dot-dot paths are rejected', async () => {
