@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
+import http from 'node:http';
 import os from 'node:os';
 import { createRequire } from 'node:module';
 import path from 'node:path';
@@ -280,7 +281,7 @@ const HOSTILE = [
   await post('See [my link](https://example.org/page) and **bold** markdown');
   for (const h of HOSTILE) await post(h);
   const list = await api('comment?type=list&status=waiting&page=1', { token: adminToken });
-  check(4, 'anonymous comments seeded as waiting (COMMENT_AUDIT)', list.data?.waitingCount === 38, `waiting=${list.data?.waitingCount}`);
+  check(4, 'anonymous comments seeded as waiting (COMMENT_AUDIT is on in index.cjs)', list.data?.waitingCount === 38, `waiting=${list.data?.waitingCount}`);
 }
 
 {
@@ -1580,6 +1581,55 @@ check(6, 'no horizontal scroll at 320/360/390/414/768/1280 on every page, both t
   await page.locator('.notice').waitFor({ timeout: 5000 }).catch(() => {});
   check(12, 'the login page says to wait a few minutes, inline, and stays on /login', /too many attempts/iu.test(await page.locator('.notice').textContent().catch(() => '')) && (await loc(page)) === '/login');
   await ctx.close();
+}
+
+{
+  const json = { 'content-type': 'application/json' };
+  const status = async (method, p, headers = json, body) => (await fetch(`${BASE}${p}`, { method, headers, body, redirect: 'manual' })).status;
+  const got = {
+    article: await status('GET', '/api/article?path=%2Fposts%2Fpost-1%2F'),
+    reaction: await status('POST', '/api/article', json, '{"path":"/posts/post-1/","type":"reaction0"}'),
+    rss: await status('GET', '/api/comment/rss?path=%2Fposts%2Fpost-1%2F'),
+    count: await status('GET', '/api/comment?type=count&url=%2Fposts%2Fpost-1%2F'),
+    recent: await status('GET', '/api/comment?type=recent'),
+    countJunk: await status('GET', '/api/comment?type=count&url=%2Fposts%2Fpost-1%2F', { ...json, authorization: 'junk' }),
+    recentJunk: await status('GET', '/api/comment?type=recent', { ...json, authorization: 'Bearer junk' }),
+    users: await status('GET', '/api/user'),
+    verification: await status('GET', '/api/verification?token=1234&email=x%40example.com'),
+    uiPost: await status('POST', '/ui/login'),
+    uix: await status('GET', '/uix'),
+    demoApi: await status('GET', '/api'),
+    demoIndex: await status('GET', '/api/index'),
+    demoPost: await status('POST', '/'),
+  };
+  const want = { article: 404, reaction: 404, rss: 404, count: 401, recent: 401, countJunk: 401, recentJunk: 401, users: 404, verification: 403, uiPost: 405, uix: 404, demoApi: 404, demoIndex: 404, demoPost: 404 };
+  check(13, "retired routes are refused: page views and reactions, the comment feed, public counts and recent comments (also with a junk Authorization), the user list, sign-up verification, non-GET /ui, /uix and Waline's demo page", Object.entries(want).every(([key, value]) => got[key] === value), JSON.stringify(got));
+  const demo = await (await fetch(`${BASE}/api`)).text();
+  const started = performance.now();
+  const slow = await status('GET', `/api/comment/${'a'.repeat(40)}%21`);
+  const took = performance.now() - started;
+  check(13, 'no demo page at /api, and a long id that is not a user id is refused at once', !demo.includes('Waline Example') && slow === 404 && took < 300, `${slow} ${Math.round(took)}ms ${demo.slice(0, 40)}`);
+  const absolute = await new Promise((resolve, reject) => {
+    const req = http.request(BASE, { method: 'GET', path: 'http://evil.example/api/user', setHost: false, headers: { host: new URL(BASE).host } }, (resp) => {
+      resp.resume();
+      resolve(resp.statusCode);
+    });
+    req.on('error', reject);
+    req.end();
+  });
+  check(13, 'a request whose target is a whole URL, not a path, is answered 400', absolute === 400, String(absolute));
+  const widget = await status('GET', '/api/comment?path=%2Fposts%2Fpost-1%2F');
+  const counted = await status('GET', '/api/comment?type=count&url=%2Fposts%2Fpost-1%2F', { ...json, authorization: `Bearer ${adminToken}` });
+  check(13, 'what the blog widget and the signed-in admin call still works', widget === 200 && counted === 200, `${widget} ${counted}`);
+  const foreign = await status('GET', '/api/comment?path=%2Fposts%2Fpost-1%2F', { referer: 'https://evil.example/page' });
+  const fromBlog = await status('GET', '/api/comment?path=%2Fposts%2Fpost-1%2F', { referer: 'https://stevehoang.com/posts/post-1/' });
+  check(13, "SECURE_DOMAINS is fixed in code: another site's request is refused, the blog's passes", foreign === 403 && fromBlog === 200, `${foreign} ${fromBlog}`);
+  const text = 'Maths $E=mc^2$, :smile: :+1:, H~2~O and x^2^\n\n```js\nconst answer = 42;\n```';
+  const posted = await api('comment', { method: 'POST', body: { nick: 'Marky', mail: 'marky@example.com', link: '', comment: text, url: '/posts/markdown/', ua: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Safari/605.1.15' } });
+  const html = posted.data?.comment ?? '';
+  check(13, 'a new comment waits for review (COMMENT_AUDIT is on in index.cjs)', posted.data?.status === 'waiting', JSON.stringify(posted).slice(0, 160));
+  check(13, 'no TeX, emoji shortcodes, ~sub~ or ^sup^ in comments; code is still highlighted by Prism', !/<svg|mjx|<sub>|<sup>|\u{1F604}|\u{1F44D}/u.test(html) && ['$E=mc^2$', ':smile:', ':+1:', 'H~2~O', 'x^2^'].every((part) => html.includes(part)) && html.includes('class="token keyword"'), html.slice(0, 300));
+  check(13, 'the new comment keeps its Browser/OS labels and gets the guest cat', posted.data?.browser === 'Safari17.5' && posted.data?.os === 'macOS 10.15.7' && posted.data?.avatar === proxied(CAT), `${posted.data?.browser} | ${posted.data?.os} | ${posted.data?.avatar}`);
 }
 
 check(12, 'no native alert/confirm/prompt dialog fired anywhere in the run', dialogs.length === 0, dialogs.slice(0, 5).join(' | '));

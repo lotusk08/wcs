@@ -502,23 +502,15 @@ describe('site name', () => {
   });
 });
 
-describe('server url and allowed origins', () => {
-  test('SERVER_URL wins over the request origin', async () => {
-    for (const [value, expected] of [
-      ['https://comments.example/', 'https://comments.example/api/'],
-      ['https://comments.example//', 'https://comments.example/api/'],
-      ['https://comments.example', 'https://comments.example/api/'],
-      ['javascript:alert(1)', 'https://line.stevehoang.com/api/'],
-      ['not a url', 'https://line.stevehoang.com/api/'],
-    ]) {
-      const ctx = await serve({ env: { SERVER_URL: value } });
-      try {
-        const res = await request(ctx.port, { path: '/', headers: { host: 'line.stevehoang.com', 'x-forwarded-host': 'evil.example' } });
-        const expectedURL = value.startsWith('https://') ? expected : 'https://evil.example/api/';
-        assert.equal(globalOf(res.body, 'serverURL'), expectedURL, value);
-      } finally {
-        ctx.server.close();
-      }
+describe('settings no longer read', () => {
+  test('SERVER_URL is ignored: the admin calls the API on its own origin', async () => {
+    const ctx = await serve({ env: { SERVER_URL: 'https://comments.example/' } });
+    try {
+      const res = await request(ctx.port, { path: '/', headers: { host: 'line.stevehoang.com' } });
+      assert.equal(globalOf(res.body, 'serverURL'), 'https://line.stevehoang.com/api/');
+      assert.ok(!res.headers['content-security-policy'].includes('comments.example'));
+    } finally {
+      ctx.server.close();
     }
   });
 
@@ -569,11 +561,11 @@ describe('content security policy', () => {
     }
   });
 
-  test('connect-src names a SERVER_URL on another origin', async () => {
-    const ctx = await serve({ env: { SERVER_URL: 'https://api.example' } });
+  test('connect-src is this origin and the captcha hosts only', async () => {
+    const ctx = await serve();
     try {
       const res = await request(ctx.port, { path: '/', headers: { host: 'line.stevehoang.com' } });
-      assert.ok(policyOf(res)['connect-src'].includes('https://api.example'));
+      assert.deepEqual(policyOf(res)['connect-src'], ["'self'", 'https://recaptcha.net', 'https://www.recaptcha.net', 'https://www.google.com', 'https://www.gstatic.com', 'https://challenges.cloudflare.com']);
     } finally {
       ctx.server.close();
     }

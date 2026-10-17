@@ -27,6 +27,7 @@ const handler = require(path.join(root, 'index.cjs'));
 
 http
   .createServer((req, res) => {
+    if (!req.headers.referer && !req.headers.origin) req.headers.referer = `http://localhost:${port}/`;
     if (req.url === '/__register' && req.method === 'POST') {
       const allow = process.env.ALLOW_REGISTER;
 

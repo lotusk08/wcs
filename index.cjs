@@ -1,6 +1,23 @@
 const path = require('node:path');
 
-process.env.OAUTH_URL = 'data:application/json,{"services":[]}';
+const SECURE_DOMAINS = ['stevehoang.com', 'line.stevehoang.com'];
+
+Object.assign(process.env, {
+  SITE_URL: 'https://stevehoang.com',
+  SECURE_DOMAINS: SECURE_DOMAINS.join(','),
+  OAUTH_URL: 'data:application/json,{"services":[]}',
+  COMMENT_AUDIT: 'true',
+  DISABLE_REGION: 'true',
+  MARKDOWN_TEX: 'false',
+  MARKDOWN_EMOJI: 'false',
+  MARKDOWN_SUB: 'false',
+  MARKDOWN_SUP: 'false',
+});
+
+for (const name of ['LOGIN', 'DISABLE_USERAGENT', 'MARKDOWN_HIGHLIGHT']) delete process.env[name];
+
+if (process.env.VERCEL_ENV === 'production') process.env.SERVER_URL = 'https://line.stevehoang.com';
+else delete process.env.SERVER_URL;
 
 const Application = require('@waline/vercel');
 
@@ -38,6 +55,8 @@ const passkey = createPasskey({
 module.exports = async (req, res) => {
   if (await ui(req, res)) return;
   if (await passkey(req, res)) return;
+
+  think.config('secureDomains', [...SECURE_DOMAINS]);
 
   return line(req, res);
 };

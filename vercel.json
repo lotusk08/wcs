@@ -3,10 +3,6 @@
   "github": {
     "silent": true
   },
-  "env": {
-    "NODE_OPTIONS": "--experimental-require-module",
-    "DISABLE_REGION": "true"
-  },
   "builds": [
     {
       "src": "robots.txt",
@@ -18,9 +14,7 @@
       "config": {
         "includeFiles": [
           "admin/dist/**",
-          "lib/**",
-          "node_modules/@mathjax/mathjax-newcm-font/**/*",
-          "node_modules/mhchemparser/**/*"
+          "lib/**"
         ]
       }
     }

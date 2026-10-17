@@ -2,13 +2,16 @@
   "name": "template",
   "version": "0.0.1",
   "private": true,
+  "engines": {
+    "node": "24.x"
+  },
   "scripts": {
     "build:admin": "(npm --prefix admin ci || npm --prefix admin install) && npm --prefix admin run build",
     "start:local": "node test/serve-local.cjs",
     "test": "eslint && knip --no-progress --no-config-hints && stylelint \"admin/src/**/*.css\" && node --test test/*.test.cjs",
     "test:e2e": "node test/e2e/admin.e2e.mjs",
     "fix": "eslint --fix && stylelint \"admin/src/**/*.css\" --fix",
-    "prepare": "husky"
+    "prepare": "husky || true"
   },
   "dependencies": {
     "@simplewebauthn/server": "14.0.3",
