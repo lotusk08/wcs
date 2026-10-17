@@ -1,6 +1,5 @@
-// oxlint-disable no-underscore-dangle
 import cls from 'classnames';
-import React, { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Trans, useTranslation } from 'react-i18next';
 import { useDispatch, useSelector } from 'react-redux';
 import { Link, NavLink, useLocation, useNavigate } from 'react-router';
@@ -228,7 +227,6 @@ export default function Header({ title }) {
             i18nKey="new version tips"
             defaults="New version @waline/vercel@{{version}} published, please upgrade it! Goto <a href='https://waline.js.org/en/advanced/faq.html#server' target='_blank'>FAQ</a> to find How to upgrade it."
             components={{
-              // oxlint-disable-next-line id-length, jsx-a11y/anchor-is-valid, jsx-a11y/anchor-has-content
               a: <a rel="noreferrer" />,
             }}
             values={{ version: latestVersion }}

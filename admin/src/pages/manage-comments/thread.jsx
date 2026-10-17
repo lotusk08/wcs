@@ -1,5 +1,5 @@
 import cls from 'classnames';
-import React, { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useSelector } from 'react-redux';
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router';
@@ -53,7 +53,6 @@ const Bubble = memo(function Bubble({ comment, parent, own, reply, flash, onRepl
               <span className="bubble-to-text">{t('replying to @{{nick}}', { nick: parent.nick })}</span>
             </button>
           ) : null}
-          {/* oxlint-disable-next-line react/no-danger */}
           <div className="comment-content bubble-content" dangerouslySetInnerHTML={{ __html: html }} />
         </div>
         <div className="bubble-actions">

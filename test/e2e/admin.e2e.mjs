@@ -310,7 +310,7 @@ const HOSTILE = [
   check(4, 'bulk approve moved 30; waiting badge 8', (await tab('Waiting').locator('.count').textContent()) === '8', await tab('Waiting').locator('.count').textContent());
   await tab('Approved').click();
   await waitList();
-  const html = await page.locator('.comment-list').innerHTML();
+  await page.locator('.comment-list').innerHTML();
   const emoji = await page.locator('.comment-content img.wl-emoji').first().getAttribute('src').catch(() => null);
   check(4, 'emoji src rewritten to https://stevehoang.com', emoji === 'https://stevehoang.com/assets/lib/waline/emojis/sh_smile.gif', emoji);
   const mdLink = page.locator('.comment-content a', { hasText: 'my link' });
@@ -345,7 +345,7 @@ const HOSTILE = [
   await more(targetId, 'sticky');
   await sleep(400);
   check(4, 'sticky tag appears', (await page.locator(`#${targetId} .tag`).count()) === 1);
-  const stickyApi = await api(`comment?path=${encodeURIComponent('/posts/post-1/')}`);
+  await api(`comment?path=${encodeURIComponent('/posts/post-1/')}`);
   await more(targetId, 'sticky');
   await sleep(400);
   check(4, 'unsticky removes tag', (await page.locator(`#${targetId} .tag`).count()) === 0);
@@ -375,7 +375,7 @@ const HOSTILE = [
   const asked = (await page.locator(`#comment-${delId}`).count()) === 1;
   await sheet.locator('.act-delete-confirm').click();
   await sleep(500);
-  const gone = await api(`comment?type=list&status=approved&page=1&pageSize=100`, { token: adminToken });
+  const gone = await api('comment?type=list&status=approved&page=1&pageSize=100', { token: adminToken });
   check(4, 'delete asks confirm and removes', asked && !gone.data.data.some((c) => c.objectId === delId) && (await page.locator(`#comment-${delId}`).count()) === 0, `asked=${asked}`);
 
   const mdItem = page.locator('li.comment', { hasText: 'my link' });
@@ -393,7 +393,6 @@ const HOSTILE = [
   check(4, 'edit saved: content rendered as markdown and sanitized', editedHtml.includes('href="https://example.net/"') && !editedHtml.includes('onerror') && (await page.evaluate(() => window.__xss)) === undefined, editedHtml.slice(0, 160));
 
   const replyTo = page.locator('li.comment', { hasText: 'Seed comment number' }).first();
-  const replyToId = await replyTo.getAttribute('id');
   await replyTo.locator('.act-reply').click();
   await sheet.locator('.comment-reply textarea').fill('Thanks from the admin');
   await sheet.locator('button[type=submit]').click();
@@ -1271,7 +1270,7 @@ check(6, 'no horizontal scroll at 320/360/390/414/768/1280 on every page, both t
   check(11, 'passkey API: listing and registration need the administrator', unauth.status === 401 && guestList.status === 403 && guestReg.status === 403, `${unauth.status} ${guestList.status} ${guestReg.status}`);
   check(11, 'passkey API: sign-in options say not configured without PASSKEYS', noConfig.status === 404 && (await noConfig.json()).errno === 'passkey_not_configured', String(noConfig.status));
 
-  let credential = null;
+  let credential;
   {
     const ctx = await ctxFor({ token: adminToken });
     const page = await open(ctx);

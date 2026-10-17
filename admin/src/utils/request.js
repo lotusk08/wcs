@@ -1,7 +1,7 @@
-import I18n from '../i18n.js';
+import i18n from '../i18n.js';
 import { API_BASE, getToken } from './site.js';
 
-export class RequestError extends Error {
+class RequestError extends Error {
   constructor(message, { status = 0, errno, data } = {}) {
     super(message);
     this.name = 'RequestError';
@@ -43,9 +43,9 @@ export default async function request(url, opts = {}) {
   let resp;
 
   try {
-    resp = await fetch(`${API_BASE}${options.url}${joiner}lang=${I18n.language}`, options);
+    resp = await fetch(`${API_BASE}${options.url}${joiner}lang=${i18n.language}`, options);
   } catch {
-    throw new RequestError(I18n.t('network error'), { errno: 'network' });
+    throw new RequestError(i18n.t('network error'), { errno: 'network' });
   }
 
   let result = null;
@@ -68,14 +68,13 @@ export default async function request(url, opts = {}) {
   }
 
   if (!result || result.errno !== 0) {
-    throw new RequestError(messageOf(result) || I18n.t('request failed'), {
+    throw new RequestError(messageOf(result) || i18n.t('request failed'), {
       status: resp.status,
       errno: result?.errno ?? 'invalid',
       data: result?.data,
     });
   }
 
-  // oxlint-disable-next-line no-underscore-dangle
   const __version = resp.headers.get('x-waline-version');
 
   return { __version, ...result.data };

@@ -1,5 +1,5 @@
 import cls from 'classnames';
-import React, { useState } from 'react';
+import { useState } from 'react';
 
 import { DEFAULT_AVATAR, buildAvatar } from '../pages/manage-comments/utils.js';
 

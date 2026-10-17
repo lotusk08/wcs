@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import AutoTextarea from '../../components/AutoTextarea.jsx';
@@ -123,7 +123,6 @@ export function CommentSheet({ open, comment, actions, onClose, onError }) {
             <button type="button" className="btn" onClick={() => setConfirming(false)}>
               {t('cancel')}
             </button>
-            {/* oxlint-disable-next-line jsx-a11y/no-autofocus */}
             <button type="button" className="btn btn-danger btn-solid act-delete-confirm" data-autofocus onClick={remove.run}>
               <Icon name="trash" size={18} />
               {t('delete')}

@@ -1,0 +1,25 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "ignoreDependencies": [
+    "Third"
+  ],
+  "workspaces": {
+    ".": {
+      "entry": [
+        "index.cjs",
+        "test/*.test.cjs",
+        "test/e2e/*.mjs"
+      ],
+      "project": [
+        "*.{cjs,mjs}",
+        "lib/**/*.cjs",
+        "test/**/*.{cjs,mjs}"
+      ]
+    },
+    "admin": {
+      "project": [
+        "src/**/*.{js,jsx}"
+      ]
+    }
+  }
+}

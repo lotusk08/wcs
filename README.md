@@ -199,6 +199,17 @@ npm install
 npm test
 ```
 
+`npm test` lints before it tests, with the same tools as stevehoang.com:
+ESLint (`eslint.config.mjs`: the recommended rules, and React's two hook
+rules on `admin/src`), knip (`knip.json`: an unused file, export or
+dependency, in the server and the admin alike), Stylelint
+(`stylelint-config-standard` on the admin's CSS), then `node --test`.
+`npm run fix` fixes what ESLint and Stylelint can. Husky runs `npm test`
+before each commit and commitlint checks the message (conventional
+commits). The SQLite module the passkey tests load is native and built for
+the Node that installed it: run the tests on that Node, or the passkey
+suite waits for ever.
+
 `test/ui.test.cjs` runs the router against a stub Waline handler and a
 temporary bundle, so it needs neither the database nor a built admin.
 `test/passkey.test.cjs` runs the passkey table on SQLite files (through

@@ -1,0 +1,7 @@
+{
+  "extends": "stylelint-config-standard",
+  "rules": {
+    "no-descending-specificity": null,
+    "property-no-vendor-prefix": [true, { "ignoreProperties": ["-webkit-text-size-adjust"] }]
+  }
+}

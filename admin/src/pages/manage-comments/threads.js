@@ -1,8 +1,8 @@
 import { getPostComments, getRecentComments } from '../../services/comment.js';
 import { commentTime } from './utils.js';
 
-export const PAGE_SIZE = 100;
-export const POST_PAGES = 10;
+const PAGE_SIZE = 100;
+const POST_PAGES = 10;
 const THREAD_PAGES = 50;
 
 const cache = { posts: null, threads: new Map() };

@@ -1,9 +1,8 @@
-import React from 'react';
+import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 
 import App from './App.jsx';
 import { store } from './store/index.js';
-// oxlint-disable-next-line import/no-unassigned-import
 import './i18n.js';
 import { SITE_TITLE, TRUSTED_ORIGINS, storage } from './utils/site.js';
 import { applyTheme } from './utils/theme.js';
@@ -50,7 +49,6 @@ const run = async () => {
   }
 
   await store.dispatch({ type: 'user/loadUserInfo' }).catch((err) => {
-    // oxlint-disable-next-line no-console
     console.error(err);
   });
 
@@ -61,11 +59,10 @@ const run = async () => {
   document.body.append(container);
 
   createRoot(container).render(
-    <React.StrictMode>
+    <StrictMode>
       <App />
-    </React.StrictMode>,
+    </StrictMode>,
   );
 };
 
-// oxlint-disable-next-line unicorn/prefer-top-level-await
 run();

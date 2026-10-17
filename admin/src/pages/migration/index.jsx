@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import BottomSheet from '../../components/BottomSheet.jsx';
@@ -29,7 +29,6 @@ export default function Migration() {
     uploadRef.current.click();
   };
 
-  // oxlint-disable-next-line max-statements
   const importData = async (event) => {
     const file = event.target.files?.[0];
 
@@ -70,7 +69,6 @@ export default function Migration() {
 
         // clean table data if not user table
         if (tableName !== 'Users') {
-          // oxlint-disable-next-line no-await-in-loop
           await request({
             url: `db?table=${tableName}`,
             method: 'DELETE',
@@ -86,7 +84,6 @@ export default function Migration() {
           let existUserObjectId = false;
 
           if (tableName === 'Users') {
-            // oxlint-disable-next-line no-await-in-loop
             const user = await request(`user?email=${encodeURIComponent(data.email)}`);
 
             if (user.objectId) {
@@ -111,12 +108,10 @@ export default function Migration() {
 
           for (const key in body) {
             if (body[key] === null || body[key] === undefined) {
-              // oxlint-disable-next-line typescript/no-dynamic-delete
               delete body[key];
             }
           }
 
-          // oxlint-disable-next-line no-await-in-loop
           const resp = await request({
             url: `db?table=${tableName}${method === 'PUT' ? `&objectId=${existUserObjectId}` : ''}`,
             method,
@@ -164,7 +159,6 @@ export default function Migration() {
 
       importedLength = 0;
       for (const [willUpdateItem, where] of willUpdateData) {
-        // oxlint-disable-next-line no-await-in-loop
         await request({
           url: `db?table=Comment&objectId=${where.objectId}`,
           method: 'PUT',

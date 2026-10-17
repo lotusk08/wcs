@@ -164,7 +164,7 @@ function call(port, path, { method = 'POST', token, body, headers = {} } = {}) {
         res.setEncoding('utf8');
         res.on('data', (c) => (text += c));
         res.on('end', () => {
-          let json = null;
+          let json;
           try {
             json = JSON.parse(text);
           } catch {
@@ -963,7 +963,7 @@ describe('PASSKEYS pasted by hand', () => {
       `'${json}'`,
       JSON.stringify(json),
       JSON.stringify(entry),
-      `﻿${json}`,
+      `\uFEFF${json}`,
     ]) {
       const list = parsePasskeys(value);
       assert.equal(list.length, 1, value);

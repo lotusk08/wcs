@@ -6,7 +6,6 @@ const readFileAsync = (file) =>
       resolve(event.target.result);
     });
     reader.addEventListener('error', reject);
-    // oxlint-disable-next-line unicorn/prefer-blob-reading-methods
     reader.readAsText(file);
   });
 

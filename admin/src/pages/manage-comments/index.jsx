@@ -1,5 +1,5 @@
 import cls from 'classnames';
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useSelector } from 'react-redux';
 import { Link, useNavigate, useSearchParams } from 'react-router';
@@ -511,7 +511,6 @@ export default function ManageComments() {
 
                     <div
                       className="comment-content"
-                      // oxlint-disable-next-line react/no-danger
                       dangerouslySetInnerHTML={{ __html: resolveContent(comment.comment) }}
                     />
 

@@ -5,7 +5,7 @@ import { useEffect, useState } from 'react';
 import { isBrowser } from '../utils/isBrowser.js';
 
 // Previously loading/loaded scripts and their current status
-export const scripts = {};
+const scripts = {};
 
 // Check for existing <script> tags with this src. If so, update scripts[src]
 // and return the new status; otherwise, return undefined.
@@ -45,16 +45,16 @@ export default function useScript({ src, checkForExisting = false, ...attributes
 
     // Check again for existing <script> tags with this src
     // in case it's changed since mount.
-    status = scripts[src];
-    if (!status && checkForExisting) {
-      status = checkExisting(src);
+    let current = scripts[src];
+    if (!current && checkForExisting) {
+      current = checkExisting(src);
     }
 
     // Determine or create <script> element to listen to.
     let scriptEl;
 
-    if (status) {
-      ({ scriptEl } = status);
+    if (current) {
+      ({ scriptEl } = current);
     } else {
       scriptEl = document.createElement('script');
       scriptEl.src = src;
@@ -72,18 +72,18 @@ export default function useScript({ src, checkForExisting = false, ...attributes
         error: null,
         scriptEl,
       };
-      status = scripts[src];
+      current = scripts[src];
     }
-    // `status` is now guaranteed to be defined: either the old status
+    // `current` is now guaranteed to be defined: either the old status
     // from a previous load, or a newly created one.
 
     const handleLoad = () => {
-      if (status) status.loading = false;
+      current.loading = false;
       setLoading(false);
       setScriptLoaded(true);
     };
     const handleError = (error) => {
-      if (status) status.error = error;
+      current.error = error;
       setError(error);
     };
 
@@ -97,7 +97,6 @@ export default function useScript({ src, checkForExisting = false, ...attributes
       scriptEl.removeEventListener('error', handleError);
     };
     // we need to ignore the attributes as they're a new object per call, so we'd never skip an effect call
-    // eslint-disable-next-line react/rule-suppression
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [src]);
 

@@ -1,4 +1,4 @@
-import React, { useLayoutEffect, useRef } from 'react';
+import { useLayoutEffect, useRef } from 'react';
 
 export default function AutoTextarea({ onInput, ...props }) {
   const ref = useRef(null);

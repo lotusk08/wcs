@@ -1,4 +1,3 @@
-import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { Provider, useSelector } from 'react-redux';
 import { Link, Navigate, Route, BrowserRouter as Router, Routes, useLocation } from 'react-router';

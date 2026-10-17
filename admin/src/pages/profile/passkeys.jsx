@@ -1,5 +1,5 @@
 import cls from 'classnames';
-import React, { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import Icon from '../../components/icon/ui.jsx';
