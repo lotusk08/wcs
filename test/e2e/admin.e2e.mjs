@@ -1618,9 +1618,9 @@ check(6, 'no horizontal scroll at 320/360/390/414/768/1280 on every page, both t
     req.end();
   });
   check(13, 'a request whose target is a whole URL, not a path, is answered 400', absolute === 400, String(absolute));
-  const widget = await status('GET', '/api/comment?path=%2Fposts%2Fpost-1%2F');
+  const list = await status('GET', '/api/comment?path=%2Fposts%2Fpost-1%2F');
   const counted = await status('GET', '/api/comment?type=count&url=%2Fposts%2Fpost-1%2F', { ...json, authorization: `Bearer ${adminToken}` });
-  check(13, 'what the blog widget and the signed-in admin call still works', widget === 200 && counted === 200, `${widget} ${counted}`);
+  check(13, 'what the blog and the signed-in admin call still works', list === 200 && counted === 200, `${list} ${counted}`);
   const foreign = await status('GET', '/api/comment?path=%2Fposts%2Fpost-1%2F', { referer: 'https://evil.example/page' });
   const fromBlog = await status('GET', '/api/comment?path=%2Fposts%2Fpost-1%2F', { referer: 'https://stevehoang.com/posts/post-1/' });
   check(13, "SECURE_DOMAINS is fixed in code: another site's request is refused, the blog's passes", foreign === 403 && fromBlog === 200, `${foreign} ${fromBlog}`);

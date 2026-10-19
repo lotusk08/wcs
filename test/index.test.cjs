@@ -84,21 +84,4 @@ describe('index.cjs', () => {
       assert.deepEqual(run(env, read), { server: null }, JSON.stringify(env));
     }
   });
-
-  test('/line.js is the built widget in client/dist, served before Waline', () => {
-    const got = run(
-      {},
-      `const { server, base } = await serve();
-       const resp = await fetch(\`\${base}/line.js\`, { headers: { origin: 'https://stevehoang.com' } });
-       const body = await resp.text();
-       server.close();
-       return { status: resp.status, type: resp.headers.get('content-type'), cors: resp.headers.get('access-control-allow-origin'), body };`,
-    );
-
-    assert.equal(got.status, 200);
-    assert.equal(got.type, 'text/javascript; charset=utf-8');
-    assert.equal(got.cors, '*');
-    assert.equal(got.body, fs.readFileSync(path.join(root, 'client', 'dist', 'line.js'), 'utf8'));
-    assert.match(got.body, /export\s*\{[^}]*\binit\b[^}]*\bstyle\b|export\s*\{[^}]*\bstyle\b[^}]*\binit\b/u);
-  });
 });

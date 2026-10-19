@@ -17,11 +17,6 @@
       "project": [
         "src/**/*.{js,jsx}"
       ]
-    },
-    "client": {
-      "project": [
-        "src/**/*.{ts,vue}"
-      ]
     }
   }
 }

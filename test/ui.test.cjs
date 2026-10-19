@@ -1,5 +1,4 @@
 const assert = require('node:assert/strict');
-const crypto = require('node:crypto');
 const fs = require('node:fs');
 const http = require('node:http');
 const os = require('node:os');
@@ -13,15 +12,12 @@ const { createUi } = require('../lib/ui.cjs');
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wcs-ui-'));
 const bundlePath = path.join(dir, 'admin.js');
 const BUNDLE = 'console.log("admin");\n';
-const clientPath = path.join(dir, 'line.js');
-const CLIENT = 'export const init = () => {};\n';
 
 fs.writeFileSync(bundlePath, BUNDLE);
-fs.writeFileSync(clientPath, CLIENT);
 
 function serve(options = {}) {
   const calls = [];
-  const ui = createUi({ bundlePath, clientPath, env: {}, ...options });
+  const ui = createUi({ bundlePath, env: {}, ...options });
   const server = http.createServer(async (req, res) => {
     if (await ui(req, res)) return;
     calls.push({ method: req.method, url: req.url });
@@ -387,106 +383,6 @@ describe('missing bundle', () => {
   });
 });
 
-describe('comments widget', () => {
-  let ctx;
-
-  before(async () => {
-    ctx = await serve();
-  });
-  after(() => ctx.server.close());
-
-  const hash = crypto.createHash('sha256').update(CLIENT).digest('hex').slice(0, 12);
-
-  test('/line.js serves the widget to any origin, cached for five minutes', async () => {
-    const res = await request(ctx.port, { path: '/line.js', headers: { origin: 'https://stevehoang.com' } });
-    assert.equal(res.status, 200);
-    assert.equal(res.body, CLIENT);
-    assert.equal(res.headers['content-type'], 'text/javascript; charset=utf-8');
-    assert.equal(res.headers['cache-control'], 'public, max-age=300');
-    assert.equal(res.headers.etag, `"${hash}"`);
-    assert.equal(res.headers['access-control-allow-origin'], '*');
-    assert.equal(res.headers['x-content-type-options'], 'nosniff');
-    assert.equal(res.headers['content-length'], String(Buffer.byteLength(CLIENT)));
-    assert.equal(res.headers['content-security-policy'], undefined);
-    assert.equal(ctx.calls.length, 0);
-  });
-
-  test('/line.js is immutable on a matching hash and brief otherwise', async () => {
-    const pinned = await request(ctx.port, { path: `/line.js?v=${hash}` });
-    assert.equal(pinned.headers['cache-control'], 'public, max-age=31536000, immutable');
-    const stale = await request(ctx.port, { path: '/line.js?v=stale' });
-    assert.equal(stale.headers['cache-control'], 'public, max-age=300');
-    assert.equal(stale.body, CLIENT);
-  });
-
-  test('/line.js answers If-None-Match with 304, still open to any origin', async () => {
-    for (const tag of [`"${hash}"`, `W/"${hash}"`, `"other", "${hash}"`, '*']) {
-      const res = await request(ctx.port, { path: '/line.js', headers: { 'if-none-match': tag } });
-      assert.equal(res.status, 304, tag);
-      assert.equal(res.body, '');
-      assert.equal(res.headers.etag, `"${hash}"`);
-      assert.equal(res.headers['access-control-allow-origin'], '*');
-      assert.equal(res.headers['cache-control'], 'public, max-age=300');
-    }
-    const miss = await request(ctx.port, { path: '/line.js', headers: { 'if-none-match': '"nope"' } });
-    assert.equal(miss.status, 200);
-    assert.equal(miss.body, CLIENT);
-  });
-
-  test('HEAD /line.js has headers and no body', async () => {
-    const res = await request(ctx.port, { method: 'HEAD', path: '/line.js' });
-    assert.equal(res.status, 200);
-    assert.equal(res.headers['content-length'], String(Buffer.byteLength(CLIENT)));
-    assert.equal(res.headers['access-control-allow-origin'], '*');
-    assert.equal(res.body, '');
-  });
-
-  test('/admin.js stays same-origin: the widget header is not on it', async () => {
-    const res = await request(ctx.port, { path: '/admin.js' });
-    assert.equal(res.body, BUNDLE);
-    assert.equal(res.headers['access-control-allow-origin'], undefined);
-  });
-
-  test('other methods and look-alike paths are not the widget', async () => {
-    for (const [method, p] of [['POST', '/line.js'], ['PUT', '/line.js'], ['GET', '/line.js/'], ['GET', '/LINE.js'], ['GET', '/line.json'], ['GET', '/api/line.js']]) {
-      const before = ctx.calls.length;
-      const res = await request(ctx.port, { method, path: p });
-      assert.notEqual(res.body, CLIENT, `${method} ${p}`);
-      assert.equal(ctx.calls.length, before + 1, `${method} ${p}`);
-    }
-    for (const p of ['/%2e%2e/line.js', '/ui/../line.js']) {
-      const res = await request(ctx.port, { path: p });
-      assert.equal(res.status, 404, p);
-    }
-  });
-
-  test('an encoded spelling of /line.js is the widget', async () => {
-    const res = await request(ctx.port, { path: '/%6Cine.js' });
-    assert.equal(res.status, 200);
-    assert.equal(res.body, CLIENT);
-  });
-
-  test('a missing widget is 503, and the admin is untouched', async () => {
-    const missing = await serve({ clientPath: path.join(dir, 'missing-line.js') });
-    try {
-      const res = await request(missing.port, { path: '/line.js' });
-      assert.equal(res.status, 503);
-      assert.match(res.headers['content-type'], /^text\/plain/u);
-      assert.equal(res.headers['cache-control'], 'no-store');
-      assert.equal(res.headers['access-control-allow-origin'], '*');
-      assert.equal(res.body, 'Comments bundle is not built.\n');
-      const admin = await request(missing.port, { path: '/admin.js' });
-      assert.equal(admin.status, 200);
-      assert.equal(admin.body, BUNDLE);
-      const shell = await request(missing.port, { path: '/' });
-      assert.equal(shell.status, 200);
-      assert.equal(missing.calls.length, 0);
-    } finally {
-      missing.server.close();
-    }
-  });
-});
-
 describe('oauth services', () => {
   test('the shell never fetches the OAuth service list', async () => {
     const original = globalThis.fetch;
@@ -678,7 +574,7 @@ describe('content security policy', () => {
   test('/admin.js and pass-through responses carry no CSP from the wrapper', async () => {
     const ctx = await serve();
     try {
-      for (const p of ['/admin.js', '/line.js', '/api/comment']) {
+      for (const p of ['/admin.js', '/api/comment']) {
         const res = await request(ctx.port, { path: p });
         assert.equal(res.headers['content-security-policy'], undefined, p);
       }
@@ -963,7 +859,7 @@ describe('retired Waline routes', () => {
     }
   });
 
-  test('comment counts and recent comments need a valid sign-in token; the widget calls still pass', async () => {
+  test('comment counts and recent comments need a valid sign-in token; the calls the blog and the admin make still pass', async () => {
     const junk = [
       { ...json, authorization: 'junk' },
       { ...json, authorization: 'Bearer junk' },

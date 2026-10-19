@@ -9,13 +9,12 @@ small wrapper that serves our own fork of the Waline admin at the site root in
 place of the unpkg-hosted admin at `/ui`. Upstream's demo page ("Waline
 Example", which loads an unpinned `@waline/client` from unpkg) is not served
 anywhere: `GET /` is the admin, and every other path or method that would
-reach it (`/api`, `/index`, `/api/index`, `POST /`, …) is a 404. It also
-serves the blog's comments widget, `/line.js`: our own fork of
-`@waline/client`, cut down to what the blog uses (see
-[Comments widget](#comments-widget)).
+reach it (`/api`, `/index`, `/api/index`, `POST /`, …) is a 404. The blog
+draws its comments with its own components (`src/components/Comment*.vue` in
+`lotusk08/stevehoang.com`), which call `/api/comment` as Waline's client did.
 
-Only the owner signs in: readers comment anonymously (the blog's widget has no
-sign-in). The admin offers a passkey, or email and password
+Only the owner signs in: readers comment anonymously (the blog's comments have
+no sign-in). The admin offers a passkey, or email and password
 with two-step verification, and nothing else: social login and public sign-up
 are switched off in the wrapper as well as in the admin.
 
@@ -39,15 +38,14 @@ sheets: the admin never opens a browser `alert`, `confirm` or `prompt`.
 | `/`, `/login`, `/forgot`, `/profile`, `/migration`, `/thread` (trailing slash and any query allowed) | GET, HEAD | Admin HTML shell (`lib/ui.cjs`) |
 | `/register` | GET, HEAD | 302 to `/login`, query kept. There is no sign-up page |
 | `/admin.js` | GET, HEAD | `admin/dist/admin.js`; immutable when `?v=` matches its hash, 5 minutes otherwise, ETag/304; 503 if it is not built |
-| `/line.js` | GET, HEAD | `client/dist/line.js`, the blog's comments widget, cached as `/admin.js` is, with `Access-Control-Allow-Origin: *` on every answer (the 304 and the 503 too): the blog imports it as a module from its own origin. See [Comments widget](#comments-widget) |
 | `/ui`, `/ui/*` | GET, HEAD | 301 to the same path without `/ui`, query kept, repeated slashes collapsed so `/ui//evil.com` stays on this host. Keeps Waline's own emails and redirects (`/ui/login`, `/ui/profile?token=…`) working |
 | `/ui`, `/ui/*` | any other | 405 with `Allow: GET, HEAD`. Waline's dashboard middleware answers every method on every path starting `/ui` with a page that loads the unpinned `@waline/admin` from unpkg on this origin; it is never reached |
 | any other path starting `/ui` (`/uix`, `/ui.html`, …) | any | 404, for the same reason |
 | any path containing a `..` segment | any | 404 |
 | any path Waline would route to its `oauth` controller (`/api/oauth`, `/oauth`, `/api/oauth/github`, `.html` forms, doubled slashes, any case) | any | 404. Social login is off, whatever the `type` or `redirect` |
-| its `article` controller (`/api/article`: page views and reactions) | any | 404 `{"errno":404,"errmsg":"Page views and reactions are disabled."}`. The widget runs with `pageview` and `reaction` off; the rows already stored stay |
+| its `article` controller (`/api/article`: page views and reactions) | any | 404 `{"errno":404,"errmsg":"Page views and reactions are disabled."}`. The blog's comments ask for neither; the rows already stored stay |
 | `/api/comment/rss` | any | 404. There is no comment feed |
-| `/api/comment?type=count`, `?type=recent` | GET (and `POST ?method=get`) | 401 `Sign in first.` unless the request carries a token this server signed (a Bearer `Authorization`, or `?state=`); an `Authorization` header alone, `junk` or a token signed with another key, is not enough. Nobody public calls them; the admin sends its Bearer token. `GET /api/comment?path=…` (the widget), `?type=list` (the admin) and `POST`/`PUT`/`DELETE /api/comment` pass |
+| `/api/comment?type=count`, `?type=recent` | GET (and `POST ?method=get`) | 401 `Sign in first.` unless the request carries a token this server signed (a Bearer `Authorization`, or `?state=`); an `Authorization` header alone, `junk` or a token signed with another key, is not enough. Nobody public calls them; the admin sends its Bearer token. `GET /api/comment?path=…` (the blog's comments), `?type=list` (the admin) and `POST`/`PUT`/`DELETE /api/comment` pass |
 | its `user` controller (`/api/user`, `/user`, `/api/user/<id>`, …) | POST | 403 `{"errno":403,"errmsg":"Registration is closed."}` unless `ALLOW_REGISTER=true`: POST is Waline's sign-up |
 | its `user` controller | GET, HEAD | 404 `The user list is disabled.`, with or without a token: the list answered every column (password hashes and 2FA secrets included) to an administrator and the top commenters to anyone. This includes the un-prefixed `/user`, which is no longer an admin page |
 | its `user` controller | DELETE, and PUT with an id in the path or `?id=` that is not the signed-in user's | 403 `Only your own account can be changed.` (no banning, no editing another account's role or label). `PUT /api/user` (the owner's own profile, password, avatar and turning 2FA off) and `PUT /api/user/password` (forgot password) pass |
@@ -82,8 +80,8 @@ otherwise come from this origin and the reCAPTCHA/Turnstile hosts, `connect-src`
 is this origin and those hosts, and `frame-ancestors 'none'`. It is also sent
 with `Cross-Origin-Opener-Policy: same-origin`, so a page that opens the admin
 in a window gets no handle on it. The blog's old login popup read the token
-back through `window.opener`; the widget has had no sign-in since, and the
-admin hands its token to no other site (see [Removed](#removed)).
+back through `window.opener`; the blog's comments have had no sign-in since,
+and the admin hands its token to no other site (see [Removed](#removed)).
 
 The admin takes a `?token=` from the address once, on load, and strips it:
 Waline's reset-password mail links to `/ui/profile?token=…`, which lands on
@@ -194,116 +192,6 @@ stay as they were typed. Waline loads MathJax only through a dynamic
 `import()` that TeX off never reaches, so its font and `mhchemparser` are no
 longer shipped (`includeFiles` in `vercel.json`). Each comment keeps its
 Browser and OS labels; the region is shown to the administrator only.
-
-## Comments widget
-
-`client/` is the widget the blog draws its comments with, forked from
-`@waline/client` 3.16.1 (Vue 3 and TypeScript, Waline's MIT licence and
-copyright in `client/LICENSE`) and cut down to what the blog uses. It builds
-to one ES module, `client/dist/line.js`, served at `/line.js`, with Vue
-bundled in (the blog is another origin and cannot share its Vue) and the
-stylesheet inside it as a string, so it costs one request: 85.8KB, 32.8KB
-gzipped, where the blog's Waline chunk was 52.7KB gzipped.
-
-```js
-const { init, style } = await import('https://line.stevehoang.com/line.js');
-
-injectStyle('line', style);
-const line = init({
-  el: '#line',
-  serverURL: 'https://line.stevehoang.com',
-  path: '/a-post',
-  lang: 'en',
-  locale: { nick: 'Name', placeholder: 'Leave a comment...', word: 'word', submit: 'Reply' },
-  meta: ['nick'],
-});
-
-line.update({ path: '/another-post' });
-line.destroy();
-```
-
-`init` takes the element (or a selector), the server, the thread's `path`
-(the page's own `location.pathname` when left out, decoded with `decodeURI`
-as Waline does), `lang` (`en` when left out; it is sent to the server, which
-answers its errors in it, and writes each comment's time, in English when
-it is not a language the browser knows), `locale` (any of
-the English strings, in Waline's own keys: `nick`, `placeholder`, `word`,
-`submit`, `anonymous`, `like`, `cancelLike`, `reply`, `cancelReply`, `more`,
-`sticky`, `now`, `commentUnderReview`) and `meta`
-(`['nick']`, or `[]` for no Name field). It returns `{ el, update, destroy }`
-as Waline's does: `update` takes the same options and, like Waline's, puts
-`path` back to `location.pathname` when it is not given; the list reloads
-whenever the server or the path changes. Waline's other options are gone with
-the features they switched off.
-
-What it draws: the comment box (the editor, its draft kept as you type; the
-Name field; the word count; Reply, with a spinner while a comment is sent;
-Ctrl or Cmd and Enter send it too), the list (each comment's avatar, name, a
-link when the comment gives one, the label and the administrator's mark, a
-sticky comment's badge, the time (`Intl.RelativeTimeFormat` in `lang` up to
-"7 days ago", "1 day ago" where Waline wrote "1 days ago", then the date),
-the address, browser and OS labels the
-server answers, the comment's HTML as the server renders it, each code
-block's `<code>` given `tabindex="0"` so a keyboard can scroll it, the
-"under review" note on a comment still waiting (which, unlike Waline's,
-a screen reader reads), like with its count, reply, and the
-replies under it), the reply box opened under a comment with its ×, and Load
-More for the next ten. An error is an `alert` as in Waline; a list that does
-not load leaves the box standing alone, and a page that does not load leaves
-Load More to try again. A comment or a like is sent once however fast it is
-pressed again, and a comment whose thread the page has left by the time the
-server answers is not added to the new thread's list. `destroy` takes off
-every listener the widget added and stops its clock.
-
-What it does not draw, and no longer ships: the emoji and GIF pickers and
-emoji parsing, image upload, the Markdown preview and the editor's action bar,
-sign-in, sign-out and the profile popup (and the `?token=` sign-in the root
-read from the page's address), the administrator's edit, delete, approve,
-spam and sticky buttons, sorting and the count above the list, the list's
-spinner, the empty-list text, Refresh, reactions, page views, comment counts,
-the recent comments, user list and user wall widgets, the RSS links, the
-"Powered by" line, reCAPTCHA and Turnstile, TeX and the client's own code
-highlighting, the dark-mode stylesheet, the look of a comment's own HTML
-(its quotes, rules, inline code, code blocks and Prism's token colours, which
-the page draws; the text's size and leading, a list's indent and an image's
-400px cap stay), the twelve other languages, and the
-levels (`LEVELS` is unset). Its dependencies are Vue and `autosize`;
-`@waline/api`, `@vueuse/core`, `marked`, `marked-highlight`,
-`@webc.site/math` and `recaptcha-v3` are gone, the three requests it makes
-written in `client/src/api.ts`.
-
-The server sees what it saw from Waline 3.16.1: the same `GET
-/api/comment?path=…&pageSize=10&page=…&lang=…&sortBy=insertedAt_desc`, the
-same `POST /api/comment?lang=…` body (`comment`, `nick`, `mail`, `link`,
-`url`, `ua`, and `pid`, `rid` and `at` for a reply; `ua` with 3.16.1's Windows
-11 and macOS version fixes), the same `PUT /api/comment/<id>?lang=…` with
-`{"like":true}` or `false`, compared request by request against Waline 3.16.1
-in Chromium. The one difference: a like no longer carries `Authorization:
-Bearer undefined`, which Waline sent for every reader and which the server
-read as no sign-in, as it reads none. The browser keeps what Waline kept, under
-Waline's keys, so drafts, names and likes carry over: `WALINE_COMMENT_BOX_EDITOR`
-(the draft, as written), `WALINE_USER_META` (`{"nick","mail","link"}`) and
-`WALINE_LIKE` (the last 50 liked ids). `WALINE_USER`, the signed-in account,
-is no longer read. Each widget reads them when it starts and writes them as
-they change, also from a comment or like the server answers after `destroy`,
-so a sent comment never comes back as a draft.
-
-The markup is Waline's with `line-` for `wl-`: `data-line` on the root,
-`line-…` classes and ids, `--line-…` custom properties (with `--line-t-color`,
-`--line-a-color` and `--line-i-bg-color` for Waline's theme, active and info
-background colours), and the like count in a `<span>`. The verified mark and
-the rule beside replies, a fixed green and grey in Waline, are
-`--line-t-color` and `--line-border-color`, and the administrator's mark,
-Waline's orange, `--line-admin-color`, so they follow the blog's colours. The
-reply box's × is the glyph alone, a thin outline × in `--line-close-color`
-(the button's own colour, so a page can tint it on hover), where Waline cut
-a grey × out of a rounded square. A liked comment's
-like takes `.active` as an open reply does, which fills its heart with
-`--line-like-color`, Waline's red, and leaves its count as it was.
-`wl-emoji` keeps its name, since the comments already saved carry
-`<img class="wl-emoji">` in their HTML. The panel is drawn in the order the
-blog wants: the editor, then Name (its label kept for screen readers and its
-text given to the field as its placeholder), then the word count and Reply.
 
 ## Avatars
 
@@ -445,19 +333,6 @@ git add admin/dist
 The shell's `?v=` hash changes with the file's contents, so a new bundle is
 picked up on the next deploy without cache trouble.
 
-## Rebuilding the client
-
-The widget lives in `client/` and builds to `client/dist/line.js`, committed
-and shipped as the admin's bundle is. Its build type-checks first (`vue-tsc`).
-
-```sh
-npm run build:client
-git add client/dist
-```
-
-The blog imports `/line.js` without a hash, so a deploy reaches a reader within
-the five minutes of its cache, then by its ETag.
-
 ## Tests
 
 ```sh
@@ -466,13 +341,10 @@ npm test
 ```
 
 `npm test` lints before it tests, with the same tools as stevehoang.com:
-ESLint (`eslint.config.mjs`: the recommended rules, React's two hook
-rules on `admin/src`, and typescript-eslint's and Vue's recommended rules on
-`client/src`), knip (`knip.json`: an unused file, export or dependency, in
-the server, the admin and the widget alike), Stylelint
-(`stylelint-config-standard` on the admin's and the widget's CSS), then
-`node --test`. knip reads `admin/` and `client/` with their own
-`node_modules` (`npm --prefix admin ci`, `npm --prefix client ci`).
+ESLint (`eslint.config.mjs`: the recommended rules, and React's two hook
+rules on `admin/src`), knip (`knip.json`: an unused file, export or
+dependency, in the server and the admin alike), Stylelint
+(`stylelint-config-standard` on the admin's CSS), then `node --test`.
 `npm run fix` fixes what ESLint and Stylelint can. Husky runs `npm test`
 before each commit and commitlint checks the message (conventional
 commits). The SQLite module the passkey tests load is native and built for
@@ -532,8 +404,7 @@ Push to the branch Vercel deploys. `vercel.json` keeps the legacy `builds`:
 `robots.txt` as a static file and `index.cjs` as the Node function, with
 every other path rewritten to it, and sets no environment (see
 [Settings](#settings)). Commit `admin/dist` whenever `admin/`
-changes, or `/admin.js` answers 503, and `client/dist` whenever `client/`
-does, or `/line.js` does.
+changes, or `/admin.js` answers 503.
 
 The root `package-lock.json` pins every install, and the devDependencies (the
 lint and test tools) install on Vercel too. `prepare` is `husky || true`, so an

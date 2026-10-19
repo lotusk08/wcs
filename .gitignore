@@ -1,5 +1,4 @@
 .vercel
 admin/node_modules
-client/node_modules
 .local/
 node_modules/

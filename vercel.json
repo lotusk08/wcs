@@ -17,7 +17,6 @@
       "config": {
         "includeFiles": [
           "admin/dist/**",
-          "client/dist/**",
           "lib/**"
         ]
       }
