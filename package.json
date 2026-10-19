@@ -7,10 +7,11 @@
   },
   "scripts": {
     "build:admin": "(npm --prefix admin ci || npm --prefix admin install) && npm --prefix admin run build",
+    "build:client": "(npm --prefix client ci || npm --prefix client install) && npm --prefix client run build",
     "start:local": "node test/serve-local.cjs",
-    "test": "eslint && knip --no-progress --no-config-hints && stylelint \"admin/src/**/*.css\" && node --test test/*.test.cjs",
+    "test": "eslint && knip --no-progress --no-config-hints && stylelint \"admin/src/**/*.css\" \"client/src/**/*.css\" && node --test test/*.test.cjs",
     "test:e2e": "node test/e2e/admin.e2e.mjs",
-    "fix": "eslint --fix && stylelint \"admin/src/**/*.css\" --fix",
+    "fix": "eslint --fix && stylelint \"admin/src/**/*.css\" \"client/src/**/*.css\" --fix",
     "prepare": "husky || true"
   },
   "dependencies": {
@@ -25,13 +26,15 @@
     "@eslint/js": "^10.0.1",
     "eslint": "^10.13.0",
     "eslint-plugin-react-hooks": "^7.1.1",
+    "eslint-plugin-vue": "^10.11.1",
     "globals": "^17.13.0",
     "husky": "^9.1.7",
     "knip": "^6.41.0",
     "stylelint": "^17.16.0",
     "stylelint-config-standard": "^40.0.0",
     "think-model": "^1.5.4",
-    "think-model-sqlite": "^2.0.1"
+    "think-model-sqlite": "^2.0.1",
+    "typescript-eslint": "^8.71.2"
   },
   "commitlint": {
     "extends": [

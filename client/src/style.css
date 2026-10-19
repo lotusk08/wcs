@@ -1,0 +1,421 @@
+:root {
+  --line-font-size: 1rem;
+  --line-white: #fff;
+  --line-dark-grey: #666;
+  --line-t-color: #27ae60;
+  --line-a-color: #2ecc71;
+  --line-color: #444;
+  --line-bg-color: #fff;
+  --line-bg-color-light: #f8f8f8;
+  --line-border-color: #ddd;
+  --line-disable-bg-color: #f8f8f8;
+  --line-disable-color: #000;
+  --line-warning-color: #915930;
+  --line-warning-bg-color: rgb(234 179 8 / 14%);
+  --line-avatar-size: 3.25rem;
+  --line-m-avatar-size: calc(var(--line-avatar-size) * 9 / 13);
+  --line-badge-color: #3498db;
+  --line-admin-color: #f59831;
+  --line-close-color: #888;
+  --line-like-color: #f00;
+  --line-badge-font-size: 0.75em;
+  --line-i-bg-color: #f8f8f8;
+  --line-info-color: #999;
+  --line-info-font-size: 0.625em;
+  --line-border: 1px solid var(--line-border-color);
+  --line-avatar-radius: 50%;
+  --line-box-shadow: none;
+}
+
+[data-line] {
+  font-size: var(--line-font-size);
+  text-align: start;
+}
+
+[dir='rtl'] [data-line] {
+  direction: rtl;
+}
+
+[data-line] * {
+  box-sizing: content-box;
+  line-height: 1.75;
+}
+
+[data-line] p {
+  color: var(--line-color);
+}
+
+[data-line] a {
+  position: relative;
+  display: inline-block;
+  color: var(--line-t-color);
+  text-decoration: none;
+  overflow-wrap: break-word;
+  cursor: pointer;
+}
+
+[data-line] a:hover {
+  color: var(--line-a-color);
+}
+
+[data-line] img {
+  max-width: 100%;
+  max-height: 400px;
+  border: none;
+}
+
+[data-line] ol,
+[data-line] ul {
+  margin-inline-start: 1.25em;
+  padding: 0;
+}
+
+.line-btn {
+  display: inline-block;
+  vertical-align: middle;
+  min-width: 2.5em;
+  margin-bottom: 0;
+  padding: 0.5em 1em;
+  border: 1px solid var(--line-border-color);
+  border-radius: 0.5em;
+  background: transparent;
+  color: var(--line-color);
+  font-weight: 400;
+  font-size: 0.75em;
+  line-height: 1.5;
+  text-align: center;
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+  touch-action: manipulation;
+  transition-duration: 0.4s;
+}
+
+.line-btn:hover,
+.line-btn:active {
+  border-color: var(--line-t-color);
+  color: var(--line-t-color);
+}
+
+.line-btn.primary {
+  border-color: var(--line-t-color);
+  background: var(--line-t-color);
+  color: var(--line-white);
+}
+
+.line-btn.primary:hover,
+.line-btn.primary:active {
+  border-color: var(--line-a-color);
+  background: var(--line-a-color);
+  color: var(--line-white);
+}
+
+.line-btn.primary:disabled {
+  border-color: var(--line-border-color);
+  background: var(--line-disable-bg-color);
+  color: var(--line-disable-color);
+  cursor: not-allowed;
+}
+
+.line-comment {
+  position: relative;
+  display: flex;
+  margin-bottom: 0.75em;
+}
+
+.line-close {
+  position: absolute;
+  inset-inline-end: -4px;
+  top: -4px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--line-close-color);
+  line-height: 1;
+  cursor: pointer;
+}
+
+.line-panel {
+  position: relative;
+  flex-shrink: 1;
+  width: 100%;
+  margin: 0.5em;
+  border: var(--line-border);
+  border-radius: 0.75em;
+  background: var(--line-bg-color);
+  box-shadow: var(--line-box-shadow);
+}
+
+.line-editor {
+  position: relative;
+  resize: vertical;
+  box-sizing: border-box;
+  width: calc(100% - 1em);
+  min-height: 8.75em;
+  margin: 0.75em 0.5em;
+  border-radius: 0.5em;
+  background: transparent;
+  font-size: 0.875em;
+}
+
+.line-header {
+  display: flex;
+  overflow: hidden;
+  padding: 0 4px;
+  border-bottom: 2px dashed var(--line-border-color);
+}
+
+.line-header label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  border: 0;
+  white-space: nowrap;
+}
+
+.line-header input {
+  flex: 1;
+  resize: none;
+  width: 0;
+  padding: 0.5em;
+  background: transparent;
+  font-size: 0.625em;
+}
+
+.line-editor,
+.line-input {
+  max-width: 100%;
+  border: none;
+  color: var(--line-color);
+  outline: none;
+  transition: all 0.25s ease;
+}
+
+.line-editor:focus,
+.line-input:focus {
+  background: var(--line-bg-color-light);
+}
+
+.line-footer {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  margin: 0.5em 0.75em;
+}
+
+.line-text-number {
+  color: var(--line-info-color);
+  font-size: 0.75em;
+}
+
+.line-footer button {
+  margin-inline-start: 0.75em;
+}
+
+.line-footer button svg {
+  display: block;
+  margin: 0 auto;
+  line-height: 18px;
+}
+
+.line-cards .line-user {
+  --avatar-size: var(--line-avatar-size);
+
+  position: relative;
+  margin-inline-end: 0.75em;
+}
+
+@media (width <= 720px) {
+  .line-cards .line-user {
+    --avatar-size: var(--line-m-avatar-size);
+  }
+}
+
+.line-cards .line-user .line-user-avatar {
+  width: var(--avatar-size);
+  height: var(--avatar-size);
+  border-radius: var(--line-avatar-radius);
+  box-shadow: var(--line-box-shadow);
+}
+
+.line-cards .line-user .verified-icon,
+.line-cards .line-user .administrator-icon {
+  position: absolute;
+  inset-inline-start: calc(var(--avatar-size) * 3 / 4);
+  top: calc(var(--avatar-size) * 3 / 4);
+  border-radius: 50%;
+  background: var(--line-bg-color);
+  box-shadow: var(--line-box-shadow);
+}
+
+.line-cards .line-user .verified-icon {
+  color: var(--line-t-color);
+}
+
+.line-cards .line-user .administrator-icon {
+  color: var(--line-admin-color);
+}
+
+.line-card-item {
+  position: relative;
+  display: flex;
+  padding: 0.5em;
+}
+
+.line-card-item .line-card-item {
+  padding-inline-end: 0;
+}
+
+.line-card {
+  flex: 1;
+  width: 0;
+  padding-bottom: 0.5em;
+  border-bottom: 1px dashed var(--line-border-color);
+}
+
+.line-card-item:last-child > .line-card {
+  border-bottom: none;
+}
+
+.line-card .line-head {
+  overflow: hidden;
+  line-height: 1.5;
+}
+
+.line-card .line-head .line-nick {
+  position: relative;
+  display: inline-block;
+  margin-inline-end: 0.5em;
+  font-weight: bold;
+  font-size: 0.875em;
+  line-height: 1;
+  text-decoration: none;
+}
+
+.line-card span.line-nick {
+  color: var(--line-dark-grey);
+}
+
+.line-card .line-badge {
+  display: inline-block;
+  margin-inline-end: 1em;
+  padding: 0 0.3em;
+  border: 1px solid var(--line-badge-color);
+  border-radius: 4px;
+  color: var(--line-badge-color);
+  font-size: var(--line-badge-font-size);
+}
+
+.line-card .line-time {
+  margin-inline-end: 0.875em;
+  color: var(--line-info-color);
+  font-size: 0.75em;
+}
+
+.line-card .line-meta {
+  position: relative;
+  line-height: 1;
+}
+
+.line-card .line-meta > span {
+  display: inline-block;
+  margin-inline-end: 0.25em;
+  padding: 2px 4px;
+  border-radius: 0.2em;
+  background: var(--line-i-bg-color);
+  color: var(--line-info-color);
+  font-size: var(--line-info-font-size);
+  line-height: 1.5;
+}
+
+.line-card .line-comment-actions {
+  float: right;
+  line-height: 1;
+}
+
+[dir='rtl'] .line-card .line-comment-actions {
+  float: left;
+}
+
+.line-card .line-like,
+.line-card .line-reply {
+  display: inline-flex;
+  align-items: center;
+  border: none;
+  background: transparent;
+  color: var(--line-color);
+  line-height: 1;
+  cursor: pointer;
+  transition: color 0.2s ease;
+}
+
+.line-card .line-like span {
+  line-height: inherit;
+}
+
+.line-card .line-like:hover,
+.line-card .line-reply:hover {
+  color: var(--line-t-color);
+}
+
+.line-card .line-like.active svg {
+  color: var(--line-like-color);
+}
+
+.line-card .line-reply.active {
+  color: var(--line-a-color);
+}
+
+.line-card .line-warning {
+  margin-top: 1em;
+  padding: 0.5em 1em;
+  border: 1px dashed var(--line-warning-color);
+  border-radius: 5px;
+  background: var(--line-warning-bg-color);
+  color: var(--line-warning-color);
+  font-size: 0.875em;
+  line-height: 1em;
+}
+
+.line-card .line-content {
+  position: relative;
+  margin-bottom: 0.75em;
+  padding-top: 0.625em;
+  font-size: 0.875em;
+  line-height: 2;
+  overflow-wrap: break-word;
+}
+
+.line-card .line-content .line-reply-to {
+  float: left;
+  margin-right: 0.5em;
+}
+
+.line-card .line-quote {
+  border-inline-start: 1px dashed var(--line-border-color);
+}
+
+.line-card .line-quote .line-user {
+  --avatar-size: var(--line-m-avatar-size);
+}
+
+.line-content .wl-emoji {
+  display: inline-block;
+  vertical-align: baseline;
+  height: 1.25em;
+  margin: -0.125em 0.25em;
+}
+
+.line-operation {
+  text-align: center;
+}
+
+.line-operation button {
+  margin: 1em 0;
+}
